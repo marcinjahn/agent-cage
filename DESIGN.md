@@ -173,7 +173,9 @@ mason-compiled nvim formatters — run correctly).
    version in an image label for debuggability. Also install the **GitHub Copilot CLI**
    (`@github/copilot` npm global, into a dedicated `/opt/copilot` prefix that is an image
    layer, not the cage volume). No token is baked: the wrapper forwards the host GitHub
-   token as `GH_TOKEN` at runtime (§7).
+   token as `GH_TOKEN` at runtime (§7). Likewise install the **Context7 CLI** (`ctx7` npm
+   global, into a dedicated `/opt/ctx7` image-layer prefix); its OAuth tokens are not baked
+   but bind-mounted from the host (§7).
 9. **Rootless docker engine** for the sidecar image (may be a _separate_ image — see §8).
 10. Set `TZ=Europe/Warsaw` (CET), `DISABLE_AUTOUPDATER=1`, and `COPILOT_AUTO_UPDATE=false`
     (keep the image-owned Copilot version from drifting in-session) as image env.
@@ -282,6 +284,7 @@ Key points:
 | `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages   |
 | `~/.config/acli`                  | same                | ro     | acli auth                                               |
 | `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note)  |
+| `~/.context7/credentials.json`    | same (file)         | ro     | Context7 CLI (`ctx7`) OAuth tokens                      |
 | `/run/user/1000/bus`              | same (socket)       | ro     | notifications via dbus                                  |
 
 **SELinux:** use `--security-opt label=disable` (§6) rather than `:z`/`:Z` mount flags —

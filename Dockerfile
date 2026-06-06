@@ -97,7 +97,7 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
 # ~/.local/bin holds the native-installed Claude binary; it must be on the ENV
 # PATH (not just cage-env.sh) so the exec-form CMD, which runs without a shell
 # and never sources BASH_ENV, can resolve `claude`.
-ENV PATH=/home/mnj/.local/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/cage/bin:/usr/local/bin:$PATH
+ENV PATH=/home/mnj/.local/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/ctx7/bin:/opt/cage/bin:/usr/local/bin:$PATH
 
 # csharpier as a baked global tool (formatter fallback, DESIGN §9). Lives in a
 # plain image path (not a volume) so the daily rebuild owns its version.
@@ -112,12 +112,12 @@ RUN groupadd -g 1000 mnj \
     && useradd -m -u 1000 -g 1000 -s /bin/bash mnj \
     # Volume mountpoints owned by mnj so podman's copy-up preserves correct
     # ownership and runtime writes (new node versions, npm -g) succeed.
-    && mkdir -p /opt/fnm /opt/cage /opt/copilot \
+    && mkdir -p /opt/fnm /opt/cage /opt/copilot /opt/ctx7 \
         /home/mnj/.local/bin \
         /home/mnj/.npm \
         /home/mnj/.nuget/packages \
         /home/mnj/.local/state/nvim \
-    && chown -R mnj:mnj /opt/fnm /opt/cage /opt/copilot /home/mnj
+    && chown -R mnj:mnj /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /home/mnj
 
 # ---------------------------------------------------------------------------
 # 4. Shell environment (PATH, fnm, dotnet) — DESIGN §6/§9.
@@ -167,6 +167,14 @@ RUN curl -fsSL https://claude.ai/install.sh | bash \
 RUN eval "$(fnm env --shell bash)" \
     && npm install -g --prefix /opt/copilot @github/copilot \
     && /opt/copilot/bin/copilot --version > /home/mnj/.cage-copilot-version 2>/dev/null || true
+
+# Context7 CLI (ctx7) — up-to-date library docs for the agents. Latest, into a
+# dedicated /opt/ctx7 prefix (image layer, NOT the /opt/cage volume) so the daily
+# rebuild owns the version. Auth is NOT baked: the wrapper bind-mounts the host
+# ~/.context7/credentials.json read-only at runtime (DESIGN §7).
+RUN eval "$(fnm env --shell bash)" \
+    && npm install -g --prefix /opt/ctx7 ctx7 \
+    && /opt/ctx7/bin/ctx7 --version > /home/mnj/.cage-ctx7-version 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # --- extra toolchains (add here) -------------------------------------------

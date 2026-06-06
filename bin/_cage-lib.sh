@@ -139,6 +139,9 @@ _cage_add_mounts() {
   _cage_bind ro "$HOME/.config/NuGet" "$CAGE_HOME/.config/NuGet"
   _cage_bind ro "$HOME/.config/acli" "$CAGE_HOME/.config/acli"
   _cage_bind ro "$HOME/.config/gh" "$CAGE_HOME/.config/gh"
+  # Context7 CLI (ctx7) OAuth tokens. Just the credentials file (ro), so the dir
+  # is the tool's own writable container path for anything else it caches.
+  _cage_bind ro "$HOME/.context7/credentials.json" "$CAGE_HOME/.context7/credentials.json"
 
   # Notifications via the host session bus (DESIGN §9).
   _cage_bind ro "/run/user/1000/bus" "/run/user/1000/bus"
