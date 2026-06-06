@@ -136,9 +136,11 @@ implementation time; do not hardcode beyond what's noted.
   (push is via `gh`/https only — see §7).
 - Notifications: Wayland session, `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`,
   `XDG_RUNTIME_DIR=/run/user/1000`. `notify-send` talks to the host notification daemon
-  over that session bus socket. The same bus also exposes the host keyring
-  (`org.freedesktop.secrets`), from which the Copilot CLI (and `gh`) read the GitHub
-  token — this is how Copilot auth is shared into the cage (§7).
+  over that session bus socket.
+- GitHub auth: the host stores its token in the OS **keyring** (`gh auth` with keyring
+  storage), so `~/.config/gh/hosts.yml` carries no token. The Copilot CLI and `gh` both
+  accept a `GH_TOKEN` env var, so the wrapper reads the host token via `gh auth token` and
+  forwards it (§7) — this is how Copilot auth is shared into the cage.
 
 ---
 
@@ -154,10 +156,8 @@ mason-compiled nvim formatters — run correctly).
 **Build steps (Dockerfile):**
 
 1. Create user `mnj` with uid/gid **1000**, home `/home/mnj`, login shell `bash`.
-2. System packages: `git jq gh kubectl libnotify libsecret` + nvim + build basics +
-   fuse-overlayfs (for rootless docker) + `acli` (install per Atlassian's Linux
-   instructions). `libsecret` lets the Copilot CLI's keytar read the GitHub token from
-   the host keyring over the shared session bus (§7).
+2. System packages: `git jq gh kubectl libnotify` + nvim + build basics + fuse-overlayfs
+   (for rootless docker) + `acli` (install per Atlassian's Linux instructions).
 3. **dotnet SDK:** **.NET 10** only. Add more versions later via the extra-toolchains
    block (below) if needed.
 4. **node via `fnm`:** install `fnm`; install the **latest LTS** node as the default.
@@ -172,8 +172,8 @@ mason-compiled nvim formatters — run correctly).
 8. **Claude Code** — install latest (native installer or npm global). Pin/record the
    version in an image label for debuggability. Also install the **GitHub Copilot CLI**
    (`@github/copilot` npm global, into a dedicated `/opt/copilot` prefix that is an image
-   layer, not the cage volume). No token is baked: it authenticates from the host keyring
-   over the shared session bus at runtime (§7).
+   layer, not the cage volume). No token is baked: the wrapper forwards the host GitHub
+   token as `GH_TOKEN` at runtime (§7).
 9. **Rootless docker engine** for the sidecar image (may be a _separate_ image — see §8).
 10. Set `TZ=Europe/Warsaw` (CET), `DISABLE_AUTOUPDATER=1`, and `COPILOT_AUTO_UPDATE=false`
     (keep the image-owned Copilot version from drifting in-session) as image env.
@@ -237,6 +237,9 @@ Key points:
 - `DOCKER_HOST=unix:///sock/docker.sock` — points at the sidecar (see §8).
 - `CLAUDE_NO_FORMAT`, `CLAUDE_BYPASS_BUILD_SUMMARY` and any other relevant `CLAUDE_*` —
   forwarded from the host environment so they keep working.
+- `GH_TOKEN` — the host GitHub token read via `gh auth token` (the host keeps it in the
+  keyring, not a file), forwarded so the Copilot CLI and `gh` are authenticated (see §7).
+  Passed by name so the value stays out of podman's argv; skipped if gh is logged out.
 - `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`, `XDG_RUNTIME_DIR=/run/user/1000`
   — for `notify-send` (see §9).
 - `TZ=Europe/Warsaw`, `DISABLE_AUTOUPDATER=1` — also set in the image; listed here so the
@@ -257,37 +260,39 @@ Key points:
 
 ### Bind mounts (host → container, identical paths)
 
-| Host path                         | Container path      | Mode   | Purpose                                                  |
-| --------------------------------- | ------------------- | ------ | -------------------------------------------------------- |
-| `~/code`                          | `/home/mnj/code`    | **rw** | the work                                                 |
-| `~/.claude`                       | `/home/mnj/.claude` | **rw** | sessions, history, creds — but with ro overlays below    |
-| `~/.claude/hooks`                 | same                | **ro** | host-executed; ro prevents host-escape poisoning (§2)    |
-| `~/.claude/settings.json`         | same (file)         | **ro** | host-executed hook/statusline config; ro (§2)            |
-| `~/.claude/settings.local.json`   | same (file)         | **ro** | as above                                                 |
-| `~/.claude/statusline-command.sh` | same (file)         | **ro** | host-executed; ro (§2)                                   |
-| `~/.claude.json`                  | same                | **rw** | MCP + project config                                     |
-| `~/.gitconfig`                    | same (file)         | ro     | commit author identity                                   |
-| `~/.config/jj/config.toml`        | same (file)         | ro     | jj identity                                              |
-| `~/scripts`                       | same                | ro     | skills' scripts; provides `limited` (put on PATH)        |
-| `~/.config/nvim`                  | same                | ro     | formatting hook — exact nvim config (§9)                 |
-| `~/.local/share/nvim`             | same                | ro     | nvim plugins + mason-installed formatters (§9)           |
-| `~/.local/share/puff/projects`    | same                | ro     | resolves all puff symlinks under `~/code`                |
-| `~/.kube/config`                  | same (file)         | ro     | kubectl auth (caches go to container-private `~/.kube`)  |
-| `~/.docker/config.json`           | same (file)         | ro     | registry auth                                            |
-| `~/.npmrc`                        | same (file)         | ro     | npm auth                                                 |
-| `~/.config/NuGet`                 | same                | ro     | nuget sources/auth                                       |
-| `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages    |
-| `~/.config/acli`                  | same                | ro     | acli auth                                                |
-| `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note)   |
-| `/run/user/1000/bus`              | same (socket)       | ro     | dbus: notifications + host keyring (Copilot/gh auth, §7) |
+| Host path                         | Container path      | Mode   | Purpose                                                 |
+| --------------------------------- | ------------------- | ------ | ------------------------------------------------------- |
+| `~/code`                          | `/home/mnj/code`    | **rw** | the work                                                |
+| `~/.claude`                       | `/home/mnj/.claude` | **rw** | sessions, history, creds — but with ro overlays below   |
+| `~/.claude/hooks`                 | same                | **ro** | host-executed; ro prevents host-escape poisoning (§2)   |
+| `~/.claude/settings.json`         | same (file)         | **ro** | host-executed hook/statusline config; ro (§2)           |
+| `~/.claude/settings.local.json`   | same (file)         | **ro** | as above                                                |
+| `~/.claude/statusline-command.sh` | same (file)         | **ro** | host-executed; ro (§2)                                  |
+| `~/.claude.json`                  | same                | **rw** | MCP + project config                                    |
+| `~/.gitconfig`                    | same (file)         | ro     | commit author identity                                  |
+| `~/.config/jj/config.toml`        | same (file)         | ro     | jj identity                                             |
+| `~/scripts`                       | same                | ro     | skills' scripts; provides `limited` (put on PATH)       |
+| `~/.config/nvim`                  | same                | ro     | formatting hook — exact nvim config (§9)                |
+| `~/.local/share/nvim`             | same                | ro     | nvim plugins + mason-installed formatters (§9)          |
+| `~/.local/share/puff/projects`    | same                | ro     | resolves all puff symlinks under `~/code`               |
+| `~/.kube/config`                  | same (file)         | ro     | kubectl auth (caches go to container-private `~/.kube`) |
+| `~/.docker/config.json`           | same (file)         | ro     | registry auth                                           |
+| `~/.npmrc`                        | same (file)         | ro     | npm auth                                                |
+| `~/.config/NuGet`                 | same                | ro     | nuget sources/auth                                      |
+| `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages   |
+| `~/.config/acli`                  | same                | ro     | acli auth                                               |
+| `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note)  |
+| `/run/user/1000/bus`              | same (socket)       | ro     | notifications via dbus                                  |
 
 **SELinux:** use `--security-opt label=disable` (§6) rather than `:z`/`:Z` mount flags —
 `:Z` would relabel the entire ~75 GB `~/code` tree and mutate host labels. Do not relabel.
 
 **Version control:** git/jj identity is mounted ro so commits have the right author. **No
 SSH keys / ssh-agent** are forwarded, so ssh-remote pushes won't work — this is the
-intended safe default. Pushing to **GitHub works over https** via the mounted `~/.config/gh`
-auth. To push from the cage, use `gh`-backed https remotes; otherwise push from the host.
+intended safe default. Pushing to **GitHub works over https** via the forwarded `GH_TOKEN`
+(the gh config is mounted but the token itself lives in the host keyring — see "GitHub
+auth" in §4 and the `--env` list in §6). To push from the cage, use `gh`-backed https
+remotes; otherwise push from the host.
 
 **Future exfil mitigation hook:** to later reduce the credential blast radius (§2), drop
 the rarely-needed cred mounts (e.g. kube/acli) and/or pair with an egress allowlist (§10).

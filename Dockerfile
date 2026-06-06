@@ -22,13 +22,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # is for the rootless docker sidecar's storage; the build basics let mason/npm
 # compile anything not already prebuilt in the mounted data dir. libicu is
 # required by the .NET SDK (§2) for globalization — without it dotnet crashes.
-# libsecret provides libsecret-1.so.0 for the Copilot CLI's bundled keytar, which
-# reads the GitHub token from the host keyring over the shared session bus (§7).
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng \
         git jq \
         libicu \
-        libsecret \
         neovim libnotify \
         gcc gcc-c++ make \
         fuse-overlayfs \
@@ -156,8 +153,8 @@ RUN curl -fsSL https://claude.ai/install.sh | bash \
 # overrides NPM_CONFIG_PREFIX for this one install. The first `copilot` run is
 # triggered here so its npm-loader bakes the platform binary into ~/.copilot/pkg
 # (an image layer, since ~/.copilot is not a mount) instead of downloading it on
-# first use. Auth is NOT baked: at runtime the bundled keytar reads the GitHub
-# token from the host keyring via the shared session bus (DESIGN §7).
+# first use. Auth is NOT baked: the wrapper forwards the host GitHub token as
+# GH_TOKEN at runtime (DESIGN §7).
 RUN eval "$(fnm env --shell bash)" \
     && npm install -g --prefix /opt/copilot @github/copilot \
     && /opt/copilot/bin/copilot --version > /home/mnj/.cage-copilot-version 2>/dev/null || true

@@ -153,6 +153,17 @@ _cage_add_envs() {
     --env "TZ=Europe/Warsaw"
     --env "DISABLE_AUTOUPDATER=1"
   )
+  # GitHub token for the Copilot CLI and `gh` inside the cage. The host keeps it in
+  # the OS keyring (not a file), so it can't be bind-mounted like other creds; we
+  # read it out with `gh auth token` and forward it as GH_TOKEN, which both Copilot
+  # and gh honor (DESIGN §7). Passed by name (value via the wrapper's own env) so it
+  # never lands in podman's argv. Skipped silently if gh is absent/logged out.
+  local gh_token
+  if gh_token="$(gh auth token 2>/dev/null)" && [ -n "$gh_token" ]; then
+    export GH_TOKEN="$gh_token"
+    RUN_ARGS+=(--env GH_TOKEN)
+  fi
+
   # Forward any CLAUDE_* set on the host (CLAUDE_NO_FORMAT, CLAUDE_BYPASS_BUILD_SUMMARY, …).
   local name
   for name in $(env | grep -oE '^CLAUDE_[A-Za-z0-9_]+' || true); do
