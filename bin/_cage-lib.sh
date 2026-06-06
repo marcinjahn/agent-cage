@@ -93,6 +93,46 @@ _cage_bind() {
   RUN_ARGS+=(-v "$src:$dst:$mode")
 }
 
+# Produce the docker config.json to mount, echoing its host path.
+#
+# The host config delegates GCR / Artifact Registry hosts to the `gcloud`
+# credential helper, which can't run in the cage: gcloud isn't installed and its
+# refresh token is a long-lived secret we deliberately don't mount (DESIGN §2).
+# So, mirroring GH_TOKEN (§7), mint a short-lived OAuth access token on the host
+# (where gcloud is authenticated) and bake it into a generated config as a static
+# `auths` entry for every gcloud-helper host, dropping those credHelpers so docker
+# inside the cage doesn't look for the absent helper. testcontainers reads this to
+# pull private images. The token expires in ~1h, but the sidecar caches the image
+# after the first pull, so a launch-time token is enough in practice.
+# Falls back to the host config untouched when gcloud/jq/token aren't available.
+_cage_docker_config() {
+  local host_cfg="$HOME/.docker/config.json" tok base gen="$CAGE_STATE_DIR/docker-config.json"
+
+  if ! command -v gcloud >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1 ||
+    ! tok="$(gcloud auth print-access-token 2>/dev/null)" || [ -z "$tok" ]; then
+    printf '%s' "$host_cfg"
+    return 0
+  fi
+
+  base="$(cat "$host_cfg" 2>/dev/null)"
+  [ -n "$base" ] || base='{}'
+  mkdir -p "$CAGE_STATE_DIR"
+
+  if printf '%s' "$base" | jq \
+    --arg auth "$(printf 'oauth2accesstoken:%s' "$tok" | base64 -w0)" '
+      (.credHelpers // {}) as $h
+      | .auths = ((.auths // {}) + ($h
+          | to_entries | map(select(.value == "gcloud")
+          | {key: .key, value: {auth: $auth}}) | from_entries))
+      | .credHelpers = ($h | with_entries(select(.value != "gcloud")))
+    ' >"$gen" 2>/dev/null; then
+    chmod 600 "$gen"
+    printf '%s' "$gen"
+  else
+    printf '%s' "$host_cfg"
+  fi
+}
+
 _cage_add_mounts() {
   # Named volumes — persist across sessions and image rebuilds (DESIGN §7).
   RUN_ARGS+=(
@@ -135,7 +175,7 @@ _cage_add_mounts() {
 
   # Credentials — mount config FILES (not dirs) for tools that also write caches,
   # so caches land in container-private paths and the tool still works (DESIGN §7).
-  _cage_bind ro "$HOME/.docker/config.json" "$CAGE_HOME/.docker/config.json"
+  _cage_bind ro "$(_cage_docker_config)" "$CAGE_HOME/.docker/config.json"
   _cage_bind ro "$HOME/.npmrc" "$CAGE_HOME/.npmrc"
   _cage_bind ro "$HOME/.config/NuGet" "$CAGE_HOME/.config/NuGet"
   _cage_bind ro "$HOME/.config/acli" "$CAGE_HOME/.config/acli"

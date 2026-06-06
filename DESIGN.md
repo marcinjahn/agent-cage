@@ -277,7 +277,7 @@ Key points:
 | `~/.config/nvim`                  | same                | ro     | formatting hook — exact nvim config (§9)               |
 | `~/.local/share/nvim`             | same                | ro     | nvim plugins + mason-installed formatters (§9)         |
 | `~/.local/share/puff/projects`    | same                | ro     | resolves all puff symlinks under `~/code`              |
-| `~/.docker/config.json`           | same (file)         | ro     | registry auth                                          |
+| `~/.docker/config.json`           | same (file)         | ro     | registry auth (GCR rewritten to a baked token — below) |
 | `~/.npmrc`                        | same (file)         | ro     | npm auth                                               |
 | `~/.config/NuGet`                 | same                | ro     | nuget sources/auth                                     |
 | `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages  |
@@ -295,6 +295,17 @@ intended safe default. Pushing to **GitHub works over https** via the forwarded 
 (the gh config is mounted but the token itself lives in the host keyring — see "GitHub
 auth" in §4 and the `--env` list in §6). To push from the cage, use `gh`-backed https
 remotes; otherwise push from the host.
+
+**GCR / Artifact Registry auth (testcontainers):** the host `~/.docker/config.json`
+delegates GCR / Artifact Registry hosts to the `gcloud` credential helper, which can't run
+in the cage — gcloud isn't installed and its refresh token is a long-lived secret we won't
+mount (§2). Instead, mirroring `GH_TOKEN`, the wrapper mints a short-lived OAuth access
+token on the host (`gcloud auth print-access-token`) and bakes it into a generated config
+as a static `auths` entry for each gcloud-helper host, dropping those `credHelpers`. That
+generated file (not the host one) is mounted ro, so testcontainers can pull private images
+(e.g. `europe-docker.pkg.dev/.../mongo:8`). The token expires in ~1h, but the sidecar
+caches the image after the first pull, so a launch-time token suffices. Falls back to the
+untouched host config when gcloud/jq/the token aren't available.
 
 **Future exfil mitigation hook:** to later reduce the credential blast radius (§2), drop
 the rarely-needed cred mounts (e.g. acli) and/or pair with an egress allowlist (§10).
