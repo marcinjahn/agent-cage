@@ -1,0 +1,13 @@
+# Subordinate uid/gid map for the docker sidecar's inner `rootless` user
+# (mounted at both /etc/subuid and /etc/subgid). DESIGN §8.
+#
+# The sidecar runs with `--userns=keep-id`, so Podman maps only the host's
+# single 65536-id subordinate block into the container, covering container ids
+# ~0..65536. The stock image ships `rootless:100000:65536`, which lands OUTSIDE
+# that window — the inner rootlesskit's `newuidmap` then fails with EPERM
+# ("write to uid_map failed: Operation not permitted") and dockerd never starts.
+#
+# This range fits inside the keep-id window and skips id 0 and the rootless
+# user's own id (1000), giving the nested daemon 64535 subordinate ids — ample
+# for testcontainers.
+rootless:1001:64535

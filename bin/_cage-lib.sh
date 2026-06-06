@@ -34,6 +34,9 @@ CAGE_SOCK="/sock/docker.sock"
 
 CAGE_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/agent-cage"
 
+# Repo-relative assets (the sidecar's subordinate-id map — DESIGN §8).
+CAGE_ETC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../etc" && pwd)"
+
 cage_err() { printf 'agent-cage: %s\n' "$*" >&2; }
 cage_die() {
   cage_err "$*"
@@ -163,17 +166,30 @@ cage_sidecar_start() {
   local extra=()
   [ -n "$CAGE_SIDECAR_STORAGE" ] && extra+=("--storage-driver=$CAGE_SIDECAR_STORAGE")
 
-  # Rootless dind, NOT --privileged: --device /dev/fuse + fuse-overlayfs storage,
-  # seccomp unconfined for nested namespaces (DESIGN §8). Mounts ONLY ~/code so a
+  # Rootless dind under rootless Podman (DESIGN §8). Mounts ONLY ~/code so a
   # docker bind-mount escape is bounded to the same surface as the cage.
+  #
+  # --privileged is REQUIRED here and, under ROOTLESS Podman, does NOT grant
+  # root-on-host: the container still runs entirely within the user's namespace
+  # (uid 1000 + the unprivileged subuid block). It only lifts the masked-path
+  # and dropped-capability restrictions so the *nested* dockerd can mount fresh
+  # /proc and /sys for the containers it launches — without it, container starts
+  # fail with `mounting "proc"/"sysfs" ... operation not permitted`. (This is the
+  # standard way the official docker:dind-rootless image is run.)
+  #
+  # --userns=keep-id aligns the daemon's socket owner with the host uid so cage
+  # sessions can use it; but it maps only the host's single 65536-id subuid block
+  # into the container, so the image's stock rootless:100000:65536 map is out of
+  # range and rootlesskit's newuidmap fails. We mount a fitted subid map instead.
   podman run -d --name "$CAGE_SIDECAR_NAME" \
+    --privileged \
     --userns=keep-id \
     --network host \
     --security-opt label=disable \
-    --security-opt seccomp=unconfined \
-    --device /dev/fuse \
     --stop-timeout 30 \
     -e "DOCKER_HOST=unix://$CAGE_SOCK" \
+    -v "$CAGE_ETC/sidecar-subid:/etc/subuid:ro" \
+    -v "$CAGE_ETC/sidecar-subid:/etc/subgid:ro" \
     -v "$CAGE_VOL_SOCK:/sock:U" \
     -v "$CAGE_VOL_DOCKER_DATA:/home/rootless/.local/share/docker" \
     -v "$HOME/code:$HOME/code:rw" \

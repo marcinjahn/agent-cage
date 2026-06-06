@@ -312,8 +312,27 @@ design and keeps the escape surface bounded.
 **Container:** named `agent-cage-docker`, long-lived, started/managed entirely by the
 wrapper. Image: **start with the official `docker:dind-rootless`** image — only build a
 custom rootless-dockerd image if a concrete gap appears (document the reason if so). Runs
-as uid 1000, **not** `--privileged` (use `--device /dev/fuse` + fuse-overlayfs storage,
-falling back to the `vfs` driver only if fuse-overlayfs proves unavailable).
+as uid 1000.
+
+**`--privileged` (under rootless Podman) — required, and NOT a host-root hole.** The
+original plan (`--device /dev/fuse` + fuse-overlayfs, no `--privileged`) does not work: the
+daemon comes up healthy, but every container it tries to launch dies with
+`error mounting "proc"/"sysfs" … operation not permitted`. Rootless Podman masks paths and
+drops capabilities on the sidecar, and a nested rootless dockerd cannot mount fresh `/proc`
+and `/sys` for its containers under those restrictions; `--privileged` lifts them. Crucially,
+because the sidecar is launched by **rootless** Podman, `--privileged` stays entirely inside
+the user's namespace (uid 1000 + the unprivileged subuid block) — it does **not**
+reintroduce root-on-host. This is also how upstream `docker:dind-rootless` is normally run.
+(Distinct from the §2 rejection, which concerns _rootful_ privilege for the cage sessions.)
+Storage uses the native `overlayfs` driver; `CAGE_SIDECAR_STORAGE` can still force `vfs`.
+
+**Subordinate-id map — required for `keep-id`.** The sidecar uses `--userns=keep-id` so the
+daemon's socket is owned by the host uid (1000) and cage sessions can use it. But `keep-id`
+maps only the host's single 65536-id subuid block into the container, while the stock image
+ships `rootless:100000:65536` — out of range. The inner rootlesskit's `newuidmap` then fails
+(`write to uid_map failed: Operation not permitted`) and dockerd never starts. The wrapper
+mounts `etc/sidecar-subid` (`rootless:1001:64535`, fitted to the keep-id window) over
+`/etc/subuid` and `/etc/subgid` to fix this.
 
 **Lifecycle (wrapper-owned — user never manages it):**
 
@@ -430,8 +449,10 @@ hook, or shell-prompt customization.
 
 Implement, then verify each of these empirically:
 
-- [ ] **Rootless docker sidecar** starts reliably without `--privileged` (fuse-overlayfs
-      or vfs storage). This is the highest-risk component.
+- [x] **Rootless docker sidecar** starts reliably and launches containers. Requires
+      rootless-Podman `--privileged` + a fitted `/etc/subuid`+`/etc/subgid` map (see §8);
+      the original no-`--privileged` plan could not mount `/proc`/`/sys` in nested
+      containers. Native `overlayfs` storage. This is the highest-risk component.
 - [ ] **testcontainers** end-to-end: spin a DB from a test under `~/code`, with
       `DOCKER_HOST` → sidecar socket; verify port reachability and Ryuk cleanup. Document
       any `TESTCONTAINERS_*` env needed.
