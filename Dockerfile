@@ -63,6 +63,15 @@ RUN JJ_URL="$(curl -fsSL https://api.github.com/repos/jj-vcs/jj/releases/latest 
     && chmod +x /usr/local/bin/jj \
     && rm -f /tmp/jj.tgz
 
+# just (command runner) — latest release, musl static build.
+RUN JUST_URL="$(curl -fsSL https://api.github.com/repos/casey/just/releases/latest \
+        | jq -r '.assets[] | select(.name | test("x86_64-unknown-linux-musl.tar.gz$")) | .browser_download_url' \
+        | head -n1)" \
+    && curl -fsSL "$JUST_URL" -o /tmp/just.tgz \
+    && tar -xzf /tmp/just.tgz -C /usr/local/bin just \
+    && chmod +x /usr/local/bin/just \
+    && rm -f /tmp/just.tgz
+
 # stylua — latest release standalone binary (formatter fallback, DESIGN §9).
 RUN STYLUA_URL="$(curl -fsSL https://api.github.com/repos/JohnnyMorganz/StyLua/releases/latest \
         | jq -r '.assets[] | select(.name | test("linux-x86_64.zip$")) | .browser_download_url' \

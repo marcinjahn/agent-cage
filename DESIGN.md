@@ -166,7 +166,7 @@ mason-compiled nvim formatters — run correctly).
 5. **Formatters:** `csharpier` (`dotnet tool install -g`), `prettier`, `eslint`,
    `stylua`. Place them on PATH. (These must match what the host nvim `conform` config
    invokes; verify the conform config's formatter names at implementation time.)
-6. **`jj`** (jujutsu) + `git` — install latest.
+6. **`jj`** (jujutsu) + `git` + **`just`** (command runner) — install latest.
 7. **`docker` CLI** (client only — the daemon is the sidecar, §8) so `docker …` and
    testcontainers' client work via `DOCKER_HOST`.
 8. **Claude Code** — install latest (native installer or npm global). Pin/record the
