@@ -497,8 +497,10 @@ Implement, then verify each of these empirically:
       `DOCKER_HOST` → sidecar socket; verify port reachability and Ryuk cleanup. Document
       any `TESTCONTAINERS_*` env needed.
 - [ ] **Formatting hook** produces byte-identical output to the host for C#/TS/Lua files.
-- [ ] **`.nvmrc` auto-selection** works in Claude's non-interactive Bash shells (wire
-      `fnm env --use-on-cd` via `BASH_ENV`; verify `node -v` picks up `.nvmrc` after `cd`).
+- [ ] **`.nvmrc` auto-selection** works in Claude's non-interactive Bash shells: `BASH_ENV`
+      sources `fnm env` then applies the cwd's `.nvmrc`/`.node-version` with
+      `fnm use --install-if-missing` (an unbaked version must be fetched on demand into the
+      FNM_DIR volume); verify `node -v` matches `.nvmrc` in a fresh cage, not just after `cd`.
 - [ ] **Notifications** from the cage appear on the host desktop.
 - [ ] **Sessions** created in the cage are visible/resumable on the host and vice-versa.
 - [ ] **Hook/settings ro overlay** holds: cage cannot write `~/.claude/hooks`,

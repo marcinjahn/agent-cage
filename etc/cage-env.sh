@@ -48,7 +48,27 @@ export DISABLE_AUTOUPDATER=1
 # Claude (~/.local/bin), the cage global prefix, dotnet, and the user's scripts.
 export PATH="/home/mnj/.local/share/nvim/mason/bin:/home/mnj/.local/bin:/opt/cage/bin:/opt/dotnet-tools:/opt/dotnet:/home/mnj/scripts:/usr/local/bin:$PATH"
 
-# fnm with --use-on-cd so `.nvmrc` auto-selects node after `cd` (DESIGN §13).
+# fnm: put node on PATH, then make `.nvmrc`/`.node-version` select the node version
+# (DESIGN §13). --use-on-cd only fires on a `cd`, so a shell that *starts* inside the
+# project — Claude's non-interactive Bash tool and the initial login shell — would
+# otherwise keep the default LTS. We therefore apply the project's version file
+# explicitly below (and on `cd`), installing it on demand: per-project versions are
+# not baked, they land in the FNM_DIR volume on first use (DESIGN §5 step 4).
 if command -v fnm >/dev/null 2>&1; then
-  eval "$(fnm env --use-on-cd --shell bash 2>/dev/null)" || true
+  eval "$(fnm env --shell bash 2>/dev/null)" || true
+
+  __cage_fnm_use() {
+    if [ -f .nvmrc ] || [ -f .node-version ]; then
+      # --install-if-missing so an unbaked version (e.g. 24.x) is fetched on demand;
+      # output is dropped so it never pollutes Claude's Bash-tool command output.
+      fnm use --install-if-missing --silent-if-unchanged >/dev/null 2>&1 || true
+    fi
+  }
+  # Re-select on directory change (interactive shells), and once now for the
+  # directory this shell was launched in.
+  cd() {
+    builtin cd "$@" || return
+    __cage_fnm_use
+  }
+  __cage_fnm_use
 fi
