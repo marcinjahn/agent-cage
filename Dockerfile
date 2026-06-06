@@ -172,7 +172,9 @@ RUN eval "$(fnm env --shell bash)" \
 
 # pnpm package manager — latest, into a dedicated /opt/pnpm prefix (image layer,
 # NOT the /opt/cage volume) so the daily rebuild owns the version. No auth to
-# bake; the content-addressable store lives under the container home at runtime.
+# bake; the content-addressable store is bind-mounted from the host at runtime
+# (shared with the host store, on the same fs as ~/code so hardlinks work — see
+# _cage-lib.sh / DESIGN §7).
 RUN eval "$(fnm env --shell bash)" \
     && npm install -g --prefix /opt/pnpm pnpm \
     && /opt/pnpm/bin/pnpm --version > /home/mnj/.cage-pnpm-version 2>/dev/null || true

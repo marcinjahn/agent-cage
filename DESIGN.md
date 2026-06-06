@@ -170,6 +170,8 @@ mason-compiled nvim formatters — run correctly).
    Per-project versions are installed on demand into a shared volume (§7). Set `FNM_DIR`
    to a volume-backed path. Also install **`pnpm`** (npm global, into a dedicated
    `/opt/pnpm` image-layer prefix so the daily rebuild owns the version); no auth to bake.
+   Its store + cache are bind-mounted from the host (§7) — on the same fs as `~/code`,
+   so pnpm hardlinks packages into `node_modules` rather than copying.
 5. **Formatters:** `csharpier` (`dotnet tool install -g`), `prettier`, `eslint`,
    `stylua`. Place them on PATH. (These must match what the host nvim `conform` config
    invokes; verify the conform config's formatter names at implementation time.)
@@ -270,29 +272,31 @@ Key points:
 
 ### Bind mounts (host → container, identical paths)
 
-| Host path                         | Container path      | Mode   | Purpose                                                |
-| --------------------------------- | ------------------- | ------ | ------------------------------------------------------ |
-| `~/code`                          | `/home/mnj/code`    | **rw** | the work                                               |
-| `~/.claude`                       | `/home/mnj/.claude` | **rw** | sessions, history, creds — but with ro overlays below  |
-| `~/.claude/hooks`                 | same                | **ro** | host-executed; ro prevents host-escape poisoning (§2)  |
-| `~/.claude/settings.json`         | same (file)         | **ro** | host-executed hook/statusline config; ro (§2)          |
-| `~/.claude/settings.local.json`   | same (file)         | **ro** | as above                                               |
-| `~/.claude/statusline-command.sh` | same (file)         | **ro** | host-executed; ro (§2)                                 |
-| `~/.claude.json`                  | same                | **rw** | MCP + project config                                   |
-| `~/.gitconfig`                    | same (file)         | ro     | commit author identity                                 |
-| `~/.config/jj/config.toml`        | same (file)         | ro     | jj identity                                            |
-| `~/scripts`                       | same                | ro     | skills' scripts; provides `limited` (put on PATH)      |
-| `~/.config/nvim`                  | same                | ro     | formatting hook — exact nvim config (§9)               |
-| `~/.local/share/nvim`             | same                | ro     | nvim plugins + mason-installed formatters (§9)         |
-| `~/.local/share/puff/projects`    | same                | ro     | resolves all puff symlinks under `~/code`              |
-| `~/.docker/config.json`           | same (file)         | ro     | registry auth (GCR rewritten to a baked token — below) |
-| `~/.npmrc`                        | same (file)         | ro     | npm auth                                               |
-| `~/.config/NuGet`                 | same                | ro     | nuget sources/auth                                     |
-| `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages  |
-| `~/.config/acli`                  | same                | ro     | acli auth                                              |
-| `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note) |
-| `~/.context7/credentials.json`    | same (file)         | ro     | Context7 CLI (`ctx7`) OAuth tokens                     |
-| `/run/user/1000/bus`              | `/run/cage/bus`     | ro     | notifications via dbus (outside the runtime tmpfs)     |
+| Host path                         | Container path      | Mode   | Purpose                                                   |
+| --------------------------------- | ------------------- | ------ | --------------------------------------------------------- |
+| `~/code`                          | `/home/mnj/code`    | **rw** | the work                                                  |
+| `~/.claude`                       | `/home/mnj/.claude` | **rw** | sessions, history, creds — but with ro overlays below     |
+| `~/.claude/hooks`                 | same                | **ro** | host-executed; ro prevents host-escape poisoning (§2)     |
+| `~/.claude/settings.json`         | same (file)         | **ro** | host-executed hook/statusline config; ro (§2)             |
+| `~/.claude/settings.local.json`   | same (file)         | **ro** | as above                                                  |
+| `~/.claude/statusline-command.sh` | same (file)         | **ro** | host-executed; ro (§2)                                    |
+| `~/.claude.json`                  | same                | **rw** | MCP + project config                                      |
+| `~/.gitconfig`                    | same (file)         | ro     | commit author identity                                    |
+| `~/.config/jj/config.toml`        | same (file)         | ro     | jj identity                                               |
+| `~/scripts`                       | same                | ro     | skills' scripts; provides `limited` (put on PATH)         |
+| `~/.config/nvim`                  | same                | ro     | formatting hook — exact nvim config (§9)                  |
+| `~/.local/share/nvim`             | same                | ro     | nvim plugins + mason-installed formatters (§9)            |
+| `~/.local/share/puff/projects`    | same                | ro     | resolves all puff symlinks under `~/code`                 |
+| `~/.docker/config.json`           | same (file)         | ro     | registry auth (GCR rewritten to a baked token — below)    |
+| `~/.npmrc`                        | same (file)         | ro     | npm auth                                                  |
+| `~/.config/NuGet`                 | same                | ro     | nuget sources/auth                                        |
+| `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages     |
+| `~/.local/share/pnpm/store`       | same                | **rw** | shared pnpm store — same fs as `~/code` so hardlinks work |
+| `~/.cache/pnpm`                   | same                | **rw** | pnpm metadata cache                                       |
+| `~/.config/acli`                  | same                | ro     | acli auth                                                 |
+| `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note)    |
+| `~/.context7/credentials.json`    | same (file)         | ro     | Context7 CLI (`ctx7`) OAuth tokens                        |
+| `/run/user/1000/bus`              | `/run/cage/bus`     | ro     | notifications via dbus (outside the runtime tmpfs)        |
 
 **SELinux:** use `--security-opt label=disable` (§6) rather than `:z`/`:Z` mount flags —
 `:Z` would relabel the entire ~75 GB `~/code` tree and mutate host labels. Do not relabel.

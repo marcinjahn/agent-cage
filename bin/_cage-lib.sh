@@ -149,6 +149,19 @@ _cage_add_mounts() {
   # ownership; label=disable avoids relabeling the (large) cache dir.
   _cage_bind rw "$HOME/.nuget/packages" "$CAGE_HOME/.nuget/packages"
 
+  # Share the host pnpm store + metadata cache (rw), like nuget above. pnpm
+  # hardlinks packages from its content-addressable store into each project's
+  # node_modules, which requires the store to be on the SAME filesystem as the
+  # project — both these and ~/code are host binds on /home, so the links resolve
+  # (a named volume under podman's graphroot would be a different mount and force
+  # slow full copies instead). Container pnpm uses the default XDG paths, which
+  # equal these, so no PNPM_HOME / store-dir config is needed. Only the `store/`
+  # is shared (not all of ~/.local/share/pnpm), keeping the cage's own pnpm global
+  # state container-local. mkdir so a fresh host still gets a persistent store.
+  mkdir -p "$HOME/.local/share/pnpm/store" "$HOME/.cache/pnpm" 2>/dev/null || true
+  _cage_bind rw "$HOME/.local/share/pnpm/store" "$CAGE_HOME/.local/share/pnpm/store"
+  _cage_bind rw "$HOME/.cache/pnpm" "$CAGE_HOME/.cache/pnpm"
+
   # The work + agent state (rw).
   _cage_bind rw "$HOME/code" "$CAGE_HOME/code"
   _cage_bind rw "$HOME/.claude" "$CAGE_HOME/.claude"
