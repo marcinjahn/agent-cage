@@ -184,15 +184,25 @@ _cage_add_mounts() {
   # is the tool's own writable container path for anything else it caches.
   _cage_bind ro "$HOME/.context7/credentials.json" "$CAGE_HOME/.context7/credentials.json"
 
-  # Notifications via the host session bus (DESIGN §9).
-  _cage_bind ro "/run/user/1000/bus" "/run/user/1000/bus"
+  # A real, writable XDG_RUNTIME_DIR. The cage has no logind to create /run/user/1000,
+  # so without this fnm — and anything else that uses the runtime dir — fails (see
+  # etc/cage-env.sh). podman can't make a tmpfs root user-owned, so it's root-owned
+  # mode 1777 (sticky, like /tmp) rather than the usual 0700; fine for a single-user
+  # cage. The bus socket below must live OUTSIDE this tmpfs: a tmpfs at /run/user/1000
+  # is stacked on top of, and hides, any bind nested within it.
+  RUN_ARGS+=(--tmpfs /run/user/1000:rw,nosuid,nodev)
+
+  # Notifications via the host session bus (DESIGN §9). Bound to a sibling path (not
+  # $XDG_RUNTIME_DIR/bus) so the runtime tmpfs above doesn't shadow it; the matching
+  # DBUS_SESSION_BUS_ADDRESS points here.
+  _cage_bind ro "/run/user/1000/bus" "/run/cage/bus"
 }
 
 _cage_add_envs() {
   RUN_ARGS+=(
     --env AGENT_CAGE=1                    # cage marker (DESIGN §11)
     --env "DOCKER_HOST=unix://$CAGE_SOCK" # -> the sidecar (DESIGN §8)
-    --env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
+    --env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cage/bus"
     --env "XDG_RUNTIME_DIR=/run/user/1000"
     --env "TZ=Europe/Warsaw"
     --env "DISABLE_AUTOUPDATER=1"

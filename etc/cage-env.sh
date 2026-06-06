@@ -55,14 +55,12 @@ export PATH="/home/mnj/.local/share/nvim/mason/bin:/home/mnj/.local/bin:/opt/cag
 # explicitly below (and on `cd`), installing it on demand: per-project versions are
 # not baked, they land in the FNM_DIR volume on first use (DESIGN §5 step 4).
 #
-# fnm keeps a per-shell "multishell" symlink under $XDG_RUNTIME_DIR. In the cage that
-# dir (/run/user/1000) is not reliably present — there's no logind to create it, and it
-# only appears when the host dbus socket is bind-mounted (bin/_cage-lib.sh) — so a bare
-# `fnm env` fails with "Can't create the symlink for multishells" and node silently
-# falls back to Fedora's system node. Point fnm at a guaranteed-writable dir for just
-# this call; the real XDG_RUNTIME_DIR (which dbus/notify-send rely on) is left untouched.
+# fnm keeps a per-shell "multishell" symlink under $XDG_RUNTIME_DIR; the launcher
+# provides a writable /run/user/1000 tmpfs for it (bin/_cage-lib.sh), since the cage has
+# no logind to create one. Without that dir `fnm env` fails ("Can't create the symlink
+# for multishells") and node silently falls back to Fedora's system node.
 if command -v fnm >/dev/null 2>&1; then
-  eval "$(XDG_RUNTIME_DIR="${TMPDIR:-/tmp}" fnm env --shell bash 2>/dev/null)" || true
+  eval "$(fnm env --shell bash 2>/dev/null)" || true
 
   __cage_fnm_use() {
     if [ -f .nvmrc ] || [ -f .node-version ]; then

@@ -134,9 +134,15 @@ implementation time; do not hardcode beyond what's noted.
 - VCS identity: `~/.gitconfig` and jj config (`~/.config/jj/config.toml`) on host —
   needed in the cage (ro) so commits have correct author. **No SSH keys** are mounted
   (push is via `gh`/https only — see §7).
-- Notifications: Wayland session, `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`,
-  `XDG_RUNTIME_DIR=/run/user/1000`. `notify-send` talks to the host notification daemon
-  over that session bus socket.
+- Notifications: Wayland session, `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cage/bus`
+  (the host `/run/user/1000/bus` socket, bound to a path outside the runtime tmpfs).
+  `notify-send` talks to the host notification daemon over that session bus socket.
+- `XDG_RUNTIME_DIR=/run/user/1000`, backed by a writable `tmpfs` the launcher mounts there
+  (the cage has no logind to create it). Required by `fnm`, which keeps its per-shell
+  "multishell" symlink under the runtime dir; without it node falls back to the system
+  node. The tmpfs is root-owned mode 1777 (podman can't make a tmpfs root user-owned), so
+  the bus socket lives at `/run/cage/bus` instead — a tmpfs at `/run/user/1000` hides any
+  bind nested inside it.
 - GitHub auth: the host stores its token in the OS **keyring** (`gh auth` with keyring
   storage), so `~/.config/gh/hosts.yml` carries no token. The Copilot CLI and `gh` both
   accept a `GH_TOKEN` env var, so the wrapper reads the host token via `gh auth token` and
@@ -243,8 +249,9 @@ Key points:
 - `GH_TOKEN` — the host GitHub token read via `gh auth token` (the host keeps it in the
   keyring, not a file), forwarded so the Copilot CLI and `gh` are authenticated (see §7).
   Passed by name so the value stays out of podman's argv; skipped if gh is logged out.
-- `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`, `XDG_RUNTIME_DIR=/run/user/1000`
-  — for `notify-send` (see §9).
+- `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cage/bus` — for `notify-send` (see §9).
+- `XDG_RUNTIME_DIR=/run/user/1000` — a writable tmpfs the launcher mounts; needed by `fnm`
+  (see §9), not just notifications.
 - `TZ=Europe/Warsaw`, `DISABLE_AUTOUPDATER=1` — also set in the image; listed here so the
   wrapper can override if needed.
 - PATH-affecting vars (`FNM_DIR`, dotnet tool path, cage global prefix) — preferably set
@@ -285,7 +292,7 @@ Key points:
 | `~/.config/acli`                  | same                | ro     | acli auth                                              |
 | `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note) |
 | `~/.context7/credentials.json`    | same (file)         | ro     | Context7 CLI (`ctx7`) OAuth tokens                     |
-| `/run/user/1000/bus`              | same (socket)       | ro     | notifications via dbus                                 |
+| `/run/user/1000/bus`              | `/run/cage/bus`     | ro     | notifications via dbus (outside the runtime tmpfs)     |
 
 **SELinux:** use `--security-opt label=disable` (§6) rather than `:z`/`:Z` mount flags —
 `:Z` would relabel the entire ~75 GB `~/code` tree and mutate host labels. Do not relabel.
