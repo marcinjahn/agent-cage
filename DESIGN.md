@@ -162,7 +162,8 @@ mason-compiled nvim formatters — run correctly).
    block (below) if needed.
 4. **node via `fnm`:** install `fnm`; install the **latest LTS** node as the default.
    Per-project versions are installed on demand into a shared volume (§7). Set `FNM_DIR`
-   to a volume-backed path.
+   to a volume-backed path. Also install **`pnpm`** (npm global, into a dedicated
+   `/opt/pnpm` image-layer prefix so the daily rebuild owns the version); no auth to bake.
 5. **Formatters:** `csharpier` (`dotnet tool install -g`), `prettier`, `eslint`,
    `stylua`. Place them on PATH. (These must match what the host nvim `conform` config
    invokes; verify the conform config's formatter names at implementation time.)
