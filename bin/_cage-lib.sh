@@ -23,7 +23,6 @@ CAGE_SIDECAR_NAME="agent-cage-docker"
 CAGE_VOL_SOCK="agent-cage-sock"
 CAGE_VOL_DOCKER_DATA="agent-cage-docker-data"
 CAGE_VOL_FNM="agent-cage-fnm"
-CAGE_VOL_NUGET="agent-cage-nuget"
 CAGE_VOL_NPM="agent-cage-npm"
 CAGE_VOL_GLOBAL="agent-cage-global"
 CAGE_VOL_NVIM_STATE="agent-cage-nvim-state"
@@ -97,11 +96,16 @@ _cage_add_mounts() {
   RUN_ARGS+=(
     -v "$CAGE_VOL_FNM:/opt/fnm"
     -v "$CAGE_VOL_GLOBAL:/opt/cage"
-    -v "$CAGE_VOL_NUGET:$CAGE_HOME/.nuget/packages"
     -v "$CAGE_VOL_NPM:$CAGE_HOME/.npm"
     -v "$CAGE_VOL_NVIM_STATE:$CAGE_HOME/.local/state/nvim"
     -v "$CAGE_VOL_SOCK:/sock"
   )
+
+  # Share the host nuget restore cache (rw) so builds reuse already-downloaded
+  # packages instead of re-pulling into an empty volume. uid 1000 maps through
+  # --userns=keep-id so writes land back in the host cache with correct
+  # ownership; label=disable avoids relabeling the (large) cache dir.
+  _cage_bind rw "$HOME/.nuget/packages" "$CAGE_HOME/.nuget/packages"
 
   # The work + agent state (rw).
   _cage_bind rw "$HOME/code" "$CAGE_HOME/code"

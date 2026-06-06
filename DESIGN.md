@@ -268,6 +268,7 @@ Key points:
 | `~/.docker/config.json`           | same (file)         | ro     | registry auth                                           |
 | `~/.npmrc`                        | same (file)         | ro     | npm auth                                                |
 | `~/.config/NuGet`                 | same                | ro     | nuget sources/auth                                      |
+| `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages   |
 | `~/.config/acli`                  | same                | ro     | acli auth                                               |
 | `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note)  |
 | `/run/user/1000/bus`              | same (socket)       | ro     | notifications via dbus                                  |
@@ -295,7 +296,6 @@ Notes:
 | Volume             | Mounted at                 | Purpose                                         |
 | ------------------ | -------------------------- | ----------------------------------------------- |
 | fnm node versions  | `$FNM_DIR`                 | installed node versions, shared across sessions |
-| nuget packages     | `~/.nuget/packages`        | restore cache                                   |
 | npm cache          | `~/.npm`                   | npm cache                                       |
 | cage global prefix | e.g. `/opt/cage` (on PATH) | ad-hoc `npm i -g` / `dotnet tool install -g`    |
 | nvim state         | `~/.local/state/nvim`      | writable nvim runtime state                     |
