@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# cage — utility command for the agent-cage (DESIGN §6).
+#
+#   cage                       drop into an interactive shell in a fresh cage
+#   cage docker status         inspect the shared docker sidecar
+#   cage docker stop           stop/remove the sidecar
+#   cage docker reset          recreate the sidecar (prunes all its images/data)
+#
+# Day to day the sidecar is invisible; these are for inspecting/recovering it.
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/_cage-lib.sh
+source "$DIR/_cage-lib.sh"
+
+usage() {
+  cat >&2 <<'EOF'
+usage:
+  cage                       interactive shell in a fresh cage container
+  cage docker status|stop|reset
+EOF
+}
+
+cmd="${1:-shell}"
+case "$cmd" in
+shell)
+  cage_lazy_pull
+  cage_sidecar_ensure || cage_err "continuing without a healthy docker sidecar"
+  declare -a RUN_ARGS
+  cage_build_run_args
+  exec podman run -it "${RUN_ARGS[@]}" "$CAGE_IMAGE" bash -l
+  ;;
+docker)
+  case "${2:-status}" in
+  ensure) cage_sidecar_ensure ;; # used internally by claude-cage
+  status) cage_sidecar_status ;;
+  stop) cage_sidecar_stop ;;
+  reset) cage_sidecar_reset ;;
+  *)
+    usage
+    exit 1
+    ;;
+  esac
+  ;;
+-h | --help | help)
+  usage
+  ;;
+*)
+  usage
+  exit 1
+  ;;
+esac

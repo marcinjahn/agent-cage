@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# claude-cage — run Claude Code with full permissions inside the cage (DESIGN §6).
+#
+# Behaves like `claude` but executes in an isolated, resource-capped container
+# with the host integration (settings, sessions, hooks, toolchains, creds,
+# notifications, ports, testcontainers) preserved. Extra args are forwarded.
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/_cage-lib.sh
+source "$DIR/_cage-lib.sh"
+
+# 1. Require the cwd to be under ~/code (the only rw work area).
+case "$PWD/" in
+"$HOME/code/"*) ;;
+*) cage_die "run from within $HOME/code (cwd: $PWD)" ;;
+esac
+
+# 2. Ensure the image is present (rate-limited pull) and 3. the sidecar is up.
+cage_lazy_pull
+cage_sidecar_ensure || cage_err "continuing without a healthy docker sidecar (testcontainers will fail)"
+
+# 4. Launch.
+declare -a RUN_ARGS
+cage_build_run_args
+exec podman run -it "${RUN_ARGS[@]}" "$CAGE_IMAGE" \
+  claude --dangerously-skip-permissions "$@"

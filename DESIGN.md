@@ -126,7 +126,7 @@ implementation time; do not hardcode beyond what's noted.
 - `~/scripts` — used by skills; contains `limited` (a CPU/mem limiter wrapper).
 - Symlinks under `~/code` all point into **`~/.local/share/puff/projects/`** (created by
   the user's `puff` tool). That single dir must be readable for symlinks to resolve.
-- MCP: one global server `esky-mcp-proxy` of type **http** (remote URL + auth in
+- MCP: one global server of type **http** (remote URL + auth in
   `~/.claude.json`) + 2 project-level. HTTP MCP needs only network + the shared config —
   no local server binary.
 - Credentials present: `~/.kube`, `~/.docker`, `~/.npmrc`, `~/.config/NuGet`, `~/.nuget`,
@@ -381,7 +381,7 @@ edits their nvim setup.
   `net.ipv4.ip_unprivileged_port_start` on the host. Prefer high ports.
 - **Egress is open** (accepted, §2). The future mitigation is an allowlist: adapt
   Anthropic's `init-firewall.sh` (nftables/iptables) to permit only anthropic, npm,
-  nuget, github, and the `esky-mcp-proxy` host + registries. Not implemented now; noted so
+  nuget, github, and the MCP proxy host + registries. Not implemented now; noted so
   the hook exists when revisited.
 
 ---
