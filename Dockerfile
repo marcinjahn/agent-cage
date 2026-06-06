@@ -20,10 +20,12 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # ---------------------------------------------------------------------------
 # neovim + libnotify drive the formatting and notification hooks; fuse-overlayfs
 # is for the rootless docker sidecar's storage; the build basics let mason/npm
-# compile anything not already prebuilt in the mounted data dir.
+# compile anything not already prebuilt in the mounted data dir. libicu is
+# required by the .NET SDK (§2) for globalization — without it dotnet crashes.
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng \
         git jq \
+        libicu \
         neovim libnotify \
         gcc gcc-c++ make \
         fuse-overlayfs \
