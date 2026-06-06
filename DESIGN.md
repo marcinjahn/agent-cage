@@ -136,7 +136,9 @@ implementation time; do not hardcode beyond what's noted.
   (push is via `gh`/https only — see §7).
 - Notifications: Wayland session, `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`,
   `XDG_RUNTIME_DIR=/run/user/1000`. `notify-send` talks to the host notification daemon
-  over that session bus socket.
+  over that session bus socket. The same bus also exposes the host keyring
+  (`org.freedesktop.secrets`), from which the Copilot CLI (and `gh`) read the GitHub
+  token — this is how Copilot auth is shared into the cage (§7).
 
 ---
 
@@ -152,8 +154,10 @@ mason-compiled nvim formatters — run correctly).
 **Build steps (Dockerfile):**
 
 1. Create user `mnj` with uid/gid **1000**, home `/home/mnj`, login shell `bash`.
-2. System packages: `git jq gh kubectl libnotify` + nvim + build basics + fuse-overlayfs
-   (for rootless docker) + `acli` (install per Atlassian's Linux instructions).
+2. System packages: `git jq gh kubectl libnotify libsecret` + nvim + build basics +
+   fuse-overlayfs (for rootless docker) + `acli` (install per Atlassian's Linux
+   instructions). `libsecret` lets the Copilot CLI's keytar read the GitHub token from
+   the host keyring over the shared session bus (§7).
 3. **dotnet SDK:** **.NET 10** only. Add more versions later via the extra-toolchains
    block (below) if needed.
 4. **node via `fnm`:** install `fnm`; install the **latest LTS** node as the default.
@@ -166,9 +170,13 @@ mason-compiled nvim formatters — run correctly).
 7. **`docker` CLI** (client only — the daemon is the sidecar, §8) so `docker …` and
    testcontainers' client work via `DOCKER_HOST`.
 8. **Claude Code** — install latest (native installer or npm global). Pin/record the
-   version in an image label for debuggability.
+   version in an image label for debuggability. Also install the **GitHub Copilot CLI**
+   (`@github/copilot` npm global, into a dedicated `/opt/copilot` prefix that is an image
+   layer, not the cage volume). No token is baked: it authenticates from the host keyring
+   over the shared session bus at runtime (§7).
 9. **Rootless docker engine** for the sidecar image (may be a _separate_ image — see §8).
-10. Set `TZ=Europe/Warsaw` (CET) and `DISABLE_AUTOUPDATER=1` as image env.
+10. Set `TZ=Europe/Warsaw` (CET), `DISABLE_AUTOUPDATER=1`, and `COPILOT_AUTO_UPDATE=false`
+    (keep the image-owned Copilot version from drifting in-session) as image env.
 11. Configure PATH and shell init (`/etc/profile.d` + `BASH_ENV`, see §6/§9) for: fnm,
     dotnet tools, the cage-owned global install prefix (volume), and `~/scripts`.
 12. Default working assumptions: non-root, `WORKDIR /home/mnj`.
@@ -249,29 +257,29 @@ Key points:
 
 ### Bind mounts (host → container, identical paths)
 
-| Host path                         | Container path      | Mode   | Purpose                                                 |
-| --------------------------------- | ------------------- | ------ | ------------------------------------------------------- |
-| `~/code`                          | `/home/mnj/code`    | **rw** | the work                                                |
-| `~/.claude`                       | `/home/mnj/.claude` | **rw** | sessions, history, creds — but with ro overlays below   |
-| `~/.claude/hooks`                 | same                | **ro** | host-executed; ro prevents host-escape poisoning (§2)   |
-| `~/.claude/settings.json`         | same (file)         | **ro** | host-executed hook/statusline config; ro (§2)           |
-| `~/.claude/settings.local.json`   | same (file)         | **ro** | as above                                                |
-| `~/.claude/statusline-command.sh` | same (file)         | **ro** | host-executed; ro (§2)                                  |
-| `~/.claude.json`                  | same                | **rw** | MCP + project config                                    |
-| `~/.gitconfig`                    | same (file)         | ro     | commit author identity                                  |
-| `~/.config/jj/config.toml`        | same (file)         | ro     | jj identity                                             |
-| `~/scripts`                       | same                | ro     | skills' scripts; provides `limited` (put on PATH)       |
-| `~/.config/nvim`                  | same                | ro     | formatting hook — exact nvim config (§9)                |
-| `~/.local/share/nvim`             | same                | ro     | nvim plugins + mason-installed formatters (§9)          |
-| `~/.local/share/puff/projects`    | same                | ro     | resolves all puff symlinks under `~/code`               |
-| `~/.kube/config`                  | same (file)         | ro     | kubectl auth (caches go to container-private `~/.kube`) |
-| `~/.docker/config.json`           | same (file)         | ro     | registry auth                                           |
-| `~/.npmrc`                        | same (file)         | ro     | npm auth                                                |
-| `~/.config/NuGet`                 | same                | ro     | nuget sources/auth                                      |
-| `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages   |
-| `~/.config/acli`                  | same                | ro     | acli auth                                               |
-| `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note)  |
-| `/run/user/1000/bus`              | same (socket)       | ro     | notifications via dbus                                  |
+| Host path                         | Container path      | Mode   | Purpose                                                  |
+| --------------------------------- | ------------------- | ------ | -------------------------------------------------------- |
+| `~/code`                          | `/home/mnj/code`    | **rw** | the work                                                 |
+| `~/.claude`                       | `/home/mnj/.claude` | **rw** | sessions, history, creds — but with ro overlays below    |
+| `~/.claude/hooks`                 | same                | **ro** | host-executed; ro prevents host-escape poisoning (§2)    |
+| `~/.claude/settings.json`         | same (file)         | **ro** | host-executed hook/statusline config; ro (§2)            |
+| `~/.claude/settings.local.json`   | same (file)         | **ro** | as above                                                 |
+| `~/.claude/statusline-command.sh` | same (file)         | **ro** | host-executed; ro (§2)                                   |
+| `~/.claude.json`                  | same                | **rw** | MCP + project config                                     |
+| `~/.gitconfig`                    | same (file)         | ro     | commit author identity                                   |
+| `~/.config/jj/config.toml`        | same (file)         | ro     | jj identity                                              |
+| `~/scripts`                       | same                | ro     | skills' scripts; provides `limited` (put on PATH)        |
+| `~/.config/nvim`                  | same                | ro     | formatting hook — exact nvim config (§9)                 |
+| `~/.local/share/nvim`             | same                | ro     | nvim plugins + mason-installed formatters (§9)           |
+| `~/.local/share/puff/projects`    | same                | ro     | resolves all puff symlinks under `~/code`                |
+| `~/.kube/config`                  | same (file)         | ro     | kubectl auth (caches go to container-private `~/.kube`)  |
+| `~/.docker/config.json`           | same (file)         | ro     | registry auth                                            |
+| `~/.npmrc`                        | same (file)         | ro     | npm auth                                                 |
+| `~/.config/NuGet`                 | same                | ro     | nuget sources/auth                                       |
+| `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages    |
+| `~/.config/acli`                  | same                | ro     | acli auth                                                |
+| `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note)   |
+| `/run/user/1000/bus`              | same (socket)       | ro     | dbus: notifications + host keyring (Copilot/gh auth, §7) |
 
 **SELinux:** use `--security-opt label=disable` (§6) rather than `:z`/`:Z` mount flags —
 `:Z` would relabel the entire ~75 GB `~/code` tree and mutate host labels. Do not relabel.

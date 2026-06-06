@@ -71,8 +71,8 @@ and rationale.
 ## How it works (quick map)
 
 - **Image** (`Dockerfile`): Fedora 43 + .NET 10, node via `fnm`, formatters
-  (csharpier/prettier/stylua/eslint), `jj`/`git`/`gh`/`kubectl`/`acli`, docker CLI, and
-  Claude Code. Built daily and pushed to GHCR.
+  (csharpier/prettier/stylua/eslint), `jj`/`git`/`gh`/`kubectl`/`acli`, docker CLI,
+  Claude Code, and the GitHub Copilot CLI. Built daily and pushed to GHCR.
 - **Wrappers** (`bin/`): `claude-cage` and `cage` share `_cage-lib.sh`, which assembles all
   podman mounts/env/flags, does the rate-limited image pull, and manages the sidecar.
 - **Mounts** (`DESIGN.md` §7): `~/code` and `~/.claude` are read-write; the host-executed

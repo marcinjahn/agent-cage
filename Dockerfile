@@ -22,10 +22,13 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # is for the rootless docker sidecar's storage; the build basics let mason/npm
 # compile anything not already prebuilt in the mounted data dir. libicu is
 # required by the .NET SDK (§2) for globalization — without it dotnet crashes.
+# libsecret provides libsecret-1.so.0 for the Copilot CLI's bundled keytar, which
+# reads the GitHub token from the host keyring over the shared session bus (§7).
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng \
         git jq \
         libicu \
+        libsecret \
         neovim libnotify \
         gcc gcc-c++ make \
         fuse-overlayfs \
@@ -88,7 +91,7 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
 # ~/.local/bin holds the native-installed Claude binary; it must be on the ENV
 # PATH (not just cage-env.sh) so the exec-form CMD, which runs without a shell
 # and never sources BASH_ENV, can resolve `claude`.
-ENV PATH=/home/mnj/.local/bin:/opt/dotnet:/opt/dotnet-tools:/opt/cage/bin:/usr/local/bin:$PATH
+ENV PATH=/home/mnj/.local/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/cage/bin:/usr/local/bin:$PATH
 
 # csharpier as a baked global tool (formatter fallback, DESIGN §9). Lives in a
 # plain image path (not a volume) so the daily rebuild owns its version.
@@ -103,12 +106,12 @@ RUN groupadd -g 1000 mnj \
     && useradd -m -u 1000 -g 1000 -s /bin/bash mnj \
     # Volume mountpoints owned by mnj so podman's copy-up preserves correct
     # ownership and runtime writes (new node versions, npm -g) succeed.
-    && mkdir -p /opt/fnm /opt/cage \
+    && mkdir -p /opt/fnm /opt/cage /opt/copilot \
         /home/mnj/.local/bin \
         /home/mnj/.npm \
         /home/mnj/.nuget/packages \
         /home/mnj/.local/state/nvim \
-    && chown -R mnj:mnj /opt/fnm /opt/cage /home/mnj
+    && chown -R mnj:mnj /opt/fnm /opt/cage /opt/copilot /home/mnj
 
 # ---------------------------------------------------------------------------
 # 4. Shell environment (PATH, fnm, dotnet) — DESIGN §6/§9.
@@ -122,7 +125,8 @@ RUN ln -sf /etc/cage/env.sh /etc/profile.d/cage.sh
 ENV FNM_DIR=/opt/fnm \
     NPM_CONFIG_PREFIX=/opt/cage \
     TZ=Europe/Warsaw \
-    DISABLE_AUTOUPDATER=1
+    DISABLE_AUTOUPDATER=1 \
+    COPILOT_AUTO_UPDATE=false
 
 # ---------------------------------------------------------------------------
 # 5. Per-user toolchains (node + node-based formatters + Claude Code)
@@ -146,6 +150,17 @@ RUN eval "$(fnm env --shell bash)" \
 # image owns the version; DISABLE_AUTOUPDATER keeps it from drifting in-session.
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && /home/mnj/.local/bin/claude --version > /home/mnj/.cage-claude-version 2>/dev/null || true
+
+# GitHub Copilot CLI — latest, into a dedicated /opt/copilot prefix (image layer,
+# NOT the /opt/cage volume) so the daily rebuild owns the version; --prefix
+# overrides NPM_CONFIG_PREFIX for this one install. The first `copilot` run is
+# triggered here so its npm-loader bakes the platform binary into ~/.copilot/pkg
+# (an image layer, since ~/.copilot is not a mount) instead of downloading it on
+# first use. Auth is NOT baked: at runtime the bundled keytar reads the GitHub
+# token from the host keyring via the shared session bus (DESIGN §7).
+RUN eval "$(fnm env --shell bash)" \
+    && npm install -g --prefix /opt/copilot @github/copilot \
+    && /opt/copilot/bin/copilot --version > /home/mnj/.cage-copilot-version 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # --- extra toolchains (add here) -------------------------------------------
