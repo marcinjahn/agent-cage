@@ -410,6 +410,19 @@ These mounts are deliberately **not** baked into the GitHub image: GitHub runner
 see the user's nvim config, and a runtime mount stays current automatically when the user
 edits their nvim setup.
 
+### Missing-tool notifier
+
+`etc/cage-env.sh` defines a `command_not_found_handle` so that when Claude tries to run a
+tool the image doesn't provide, the user gets a host desktop notification (`notify-send`
+over the already-mounted dbus session bus, same path as the `Notification` hook above) —
+the cue to add that tool to the `Dockerfile` and let the daily rebuild bake it in. It
+fires only on an actual exec attempt, not on `command -v`/`type` probes, so it tracks real
+use rather than availability checks; it still returns 127 so normal "command not found"
+semantics are preserved. Only bare tool names notify (paths and local scripts are skipped),
+and a marker dir in the container-private `/tmp` (fresh each `--rm` launch) dedupes to one
+notification per tool per session. The handler is defined **before** the file's idempotency
+guard so it's present even in nested shells that short-circuit it.
+
 ---
 
 ## 10. Networking
