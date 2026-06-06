@@ -133,7 +133,6 @@ _cage_add_mounts() {
 
   # Credentials — mount config FILES (not dirs) for tools that also write caches,
   # so caches land in container-private paths and the tool still works (DESIGN §7).
-  _cage_bind ro "$HOME/.kube/config" "$CAGE_HOME/.kube/config"
   _cage_bind ro "$HOME/.docker/config.json" "$CAGE_HOME/.docker/config.json"
   _cage_bind ro "$HOME/.npmrc" "$CAGE_HOME/.npmrc"
   _cage_bind ro "$HOME/.config/NuGet" "$CAGE_HOME/.config/NuGet"

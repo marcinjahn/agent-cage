@@ -62,7 +62,7 @@ rewrite them, an injected prompt could plant code that later executes _outside_ 
 as you. Read-only overlays close that door. (See §7.)
 
 **Accepted risk — secret exfiltration (not mitigated for now):** the cage mounts
-credentials (docker/npm/nuget/kube/acli/gh, and the Claude token in
+credentials (docker/npm/nuget/acli/gh, and the Claude token in
 `~/.claude/.credentials.json`) readable by a full-permissions agent, with **open network
 egress** (§10). The cage prevents _destruction_ of host data but does **not** prevent an
 injected prompt from _reading those secrets and sending them out_. Accepted deliberately
@@ -121,7 +121,7 @@ implementation time; do not hardcode beyond what's noted.
   - `WorktreeCreate`/`WorktreeRemove` → scripts. `statusLine` → `statusline-command.sh`.
 - Toolchains the cage must provide (host locations are irrelevant — reinstall fresh):
   dotnet, node (multiple, via `.nvmrc`), formatters **csharpier / prettier / stylua /
-  eslint**, plus `jq git jj gh acli kubectl`. (`acli` and `gh` are system binaries on
+  eslint**, plus `jq git jj gh acli`. (`acli` and `gh` are system binaries on
   host — must be installed in the image.)
 - `~/scripts` — used by skills; contains `limited` (a CPU/mem limiter wrapper).
 - Symlinks under `~/code` all point into **`~/.local/share/puff/projects/`** (created by
@@ -129,7 +129,7 @@ implementation time; do not hardcode beyond what's noted.
 - MCP: one global server of type **http** (remote URL + auth in
   `~/.claude.json`) + 2 project-level. HTTP MCP needs only network + the shared config —
   no local server binary.
-- Credentials present: `~/.kube`, `~/.docker`, `~/.npmrc`, `~/.config/NuGet`, `~/.nuget`,
+- Credentials present: `~/.docker`, `~/.npmrc`, `~/.config/NuGet`, `~/.nuget`,
   `~/.config/gh`, `~/.config/acli`.
 - VCS identity: `~/.gitconfig` and jj config (`~/.config/jj/config.toml`) on host —
   needed in the cage (ro) so commits have correct author. **No SSH keys** are mounted
@@ -156,7 +156,7 @@ mason-compiled nvim formatters — run correctly).
 **Build steps (Dockerfile):**
 
 1. Create user `mnj` with uid/gid **1000**, home `/home/mnj`, login shell `bash`.
-2. System packages: `git jq gh kubectl libnotify` + nvim + build basics + fuse-overlayfs
+2. System packages: `git jq gh libnotify` + nvim + build basics + fuse-overlayfs
    (for rootless docker) + `acli` (install per Atlassian's Linux instructions).
 3. **dotnet SDK:** **.NET 10** only. Add more versions later via the extra-toolchains
    block (below) if needed.
@@ -262,30 +262,29 @@ Key points:
 
 ### Bind mounts (host → container, identical paths)
 
-| Host path                         | Container path      | Mode   | Purpose                                                 |
-| --------------------------------- | ------------------- | ------ | ------------------------------------------------------- |
-| `~/code`                          | `/home/mnj/code`    | **rw** | the work                                                |
-| `~/.claude`                       | `/home/mnj/.claude` | **rw** | sessions, history, creds — but with ro overlays below   |
-| `~/.claude/hooks`                 | same                | **ro** | host-executed; ro prevents host-escape poisoning (§2)   |
-| `~/.claude/settings.json`         | same (file)         | **ro** | host-executed hook/statusline config; ro (§2)           |
-| `~/.claude/settings.local.json`   | same (file)         | **ro** | as above                                                |
-| `~/.claude/statusline-command.sh` | same (file)         | **ro** | host-executed; ro (§2)                                  |
-| `~/.claude.json`                  | same                | **rw** | MCP + project config                                    |
-| `~/.gitconfig`                    | same (file)         | ro     | commit author identity                                  |
-| `~/.config/jj/config.toml`        | same (file)         | ro     | jj identity                                             |
-| `~/scripts`                       | same                | ro     | skills' scripts; provides `limited` (put on PATH)       |
-| `~/.config/nvim`                  | same                | ro     | formatting hook — exact nvim config (§9)                |
-| `~/.local/share/nvim`             | same                | ro     | nvim plugins + mason-installed formatters (§9)          |
-| `~/.local/share/puff/projects`    | same                | ro     | resolves all puff symlinks under `~/code`               |
-| `~/.kube/config`                  | same (file)         | ro     | kubectl auth (caches go to container-private `~/.kube`) |
-| `~/.docker/config.json`           | same (file)         | ro     | registry auth                                           |
-| `~/.npmrc`                        | same (file)         | ro     | npm auth                                                |
-| `~/.config/NuGet`                 | same                | ro     | nuget sources/auth                                      |
-| `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages   |
-| `~/.config/acli`                  | same                | ro     | acli auth                                               |
-| `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note)  |
-| `~/.context7/credentials.json`    | same (file)         | ro     | Context7 CLI (`ctx7`) OAuth tokens                      |
-| `/run/user/1000/bus`              | same (socket)       | ro     | notifications via dbus                                  |
+| Host path                         | Container path      | Mode   | Purpose                                                |
+| --------------------------------- | ------------------- | ------ | ------------------------------------------------------ |
+| `~/code`                          | `/home/mnj/code`    | **rw** | the work                                               |
+| `~/.claude`                       | `/home/mnj/.claude` | **rw** | sessions, history, creds — but with ro overlays below  |
+| `~/.claude/hooks`                 | same                | **ro** | host-executed; ro prevents host-escape poisoning (§2)  |
+| `~/.claude/settings.json`         | same (file)         | **ro** | host-executed hook/statusline config; ro (§2)          |
+| `~/.claude/settings.local.json`   | same (file)         | **ro** | as above                                               |
+| `~/.claude/statusline-command.sh` | same (file)         | **ro** | host-executed; ro (§2)                                 |
+| `~/.claude.json`                  | same                | **rw** | MCP + project config                                   |
+| `~/.gitconfig`                    | same (file)         | ro     | commit author identity                                 |
+| `~/.config/jj/config.toml`        | same (file)         | ro     | jj identity                                            |
+| `~/scripts`                       | same                | ro     | skills' scripts; provides `limited` (put on PATH)      |
+| `~/.config/nvim`                  | same                | ro     | formatting hook — exact nvim config (§9)               |
+| `~/.local/share/nvim`             | same                | ro     | nvim plugins + mason-installed formatters (§9)         |
+| `~/.local/share/puff/projects`    | same                | ro     | resolves all puff symlinks under `~/code`              |
+| `~/.docker/config.json`           | same (file)         | ro     | registry auth                                          |
+| `~/.npmrc`                        | same (file)         | ro     | npm auth                                               |
+| `~/.config/NuGet`                 | same                | ro     | nuget sources/auth                                     |
+| `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages  |
+| `~/.config/acli`                  | same                | ro     | acli auth                                              |
+| `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note) |
+| `~/.context7/credentials.json`    | same (file)         | ro     | Context7 CLI (`ctx7`) OAuth tokens                     |
+| `/run/user/1000/bus`              | same (socket)       | ro     | notifications via dbus                                 |
 
 **SELinux:** use `--security-opt label=disable` (§6) rather than `:z`/`:Z` mount flags —
 `:Z` would relabel the entire ~75 GB `~/code` tree and mutate host labels. Do not relabel.
@@ -298,11 +297,11 @@ auth" in §4 and the `--env` list in §6). To push from the cage, use `gh`-backe
 remotes; otherwise push from the host.
 
 **Future exfil mitigation hook:** to later reduce the credential blast radius (§2), drop
-the rarely-needed cred mounts (e.g. kube/acli) and/or pair with an egress allowlist (§10).
+the rarely-needed cred mounts (e.g. acli) and/or pair with an egress allowlist (§10).
 
 Notes:
 
-- Mount **config files**, not whole dirs, for tools that also write caches (kube, npm),
+- Mount **config files**, not whole dirs, for tools that also write caches (npm),
   so the cache lands in a container-private/volume path and the tool still works.
 - nvim writable state (`~/.local/state/nvim`: shada, swap, lazy-lock) must be redirected
   to a writable location (tmpfs or volume) since the config/data mounts are ro (§9).
@@ -457,7 +456,7 @@ hook, or shell-prompt customization.
 | Formatting hook (nvim)                           | Fedora base + ro mounts of nvim config/data + formatters on PATH      |
 | `CLAUDE_NO_FORMAT` etc.                          | Wrapper forwards `--env`                                              |
 | Bidirectional port-forward                       | `--network host`                                                      |
-| Auth: docker/kubectl/npm/nuget/gh/acli/MCP       | ro config mounts + shared `~/.claude.json` (MCP) + sidecar for docker |
+| Auth: docker/npm/nuget/gh/acli/MCP               | ro config mounts + shared `~/.claude.json` (MCP) + sidecar for docker |
 
 ---
 

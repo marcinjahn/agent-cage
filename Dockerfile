@@ -43,12 +43,6 @@ RUN curl -fsSL https://download.docker.com/linux/fedora/docker-ce.repo \
     && dnf -y install docker-ce-cli \
     && dnf clean all
 
-# kubectl — latest stable, fetched directly (not in Fedora repos).
-RUN KVER="$(curl -fsSL https://dl.k8s.io/release/stable.txt)" \
-    && curl -fsSL "https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl" \
-        -o /usr/local/bin/kubectl \
-    && chmod +x /usr/local/bin/kubectl
-
 # acli (Atlassian CLI) — per Atlassian's Linux instructions (single static binary).
 RUN curl -fsSL "https://acli.atlassian.com/linux/latest/acli_linux_amd64/acli" \
         -o /usr/local/bin/acli \
