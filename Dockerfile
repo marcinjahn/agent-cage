@@ -85,7 +85,10 @@ ENV DOTNET_ROOT=/opt/dotnet \
 RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
     && bash /tmp/dotnet-install.sh --channel "$DOTNET_CHANNEL" --install-dir /opt/dotnet \
     && rm -f /tmp/dotnet-install.sh
-ENV PATH=/opt/dotnet:/opt/dotnet-tools:/opt/cage/bin:/usr/local/bin:$PATH
+# ~/.local/bin holds the native-installed Claude binary; it must be on the ENV
+# PATH (not just cage-env.sh) so the exec-form CMD, which runs without a shell
+# and never sources BASH_ENV, can resolve `claude`.
+ENV PATH=/home/mnj/.local/bin:/opt/dotnet:/opt/dotnet-tools:/opt/cage/bin:/usr/local/bin:$PATH
 
 # csharpier as a baked global tool (formatter fallback, DESIGN §9). Lives in a
 # plain image path (not a volume) so the daily rebuild owns its version.
