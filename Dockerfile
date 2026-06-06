@@ -57,7 +57,7 @@ RUN JJ_URL="$(curl -fsSL https://api.github.com/repos/jj-vcs/jj/releases/latest 
         | jq -r '.assets[] | select(.name | test("x86_64-unknown-linux-musl.tar.gz$")) | .browser_download_url' \
         | head -n1)" \
     && curl -fsSL "$JJ_URL" -o /tmp/jj.tgz \
-    && tar -xzf /tmp/jj.tgz -C /usr/local/bin jj \
+    && tar -xzf /tmp/jj.tgz -C /usr/local/bin --strip-components=1 ./jj \
     && chmod +x /usr/local/bin/jj \
     && rm -f /tmp/jj.tgz
 
