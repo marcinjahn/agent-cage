@@ -10,9 +10,11 @@ CAGE_SIDECAR_IMAGE="${CAGE_SIDECAR_IMAGE:-docker.io/library/docker:dind-rootless
 CAGE_MEMORY="${CAGE_MEMORY:-4g}"
 CAGE_CPUS="${CAGE_CPUS:-2}"
 
-# Lazy pull: refresh :latest at most once per this many seconds (default 24h),
-# so launches stay fast (DESIGN §5/§13).
-CAGE_PULL_INTERVAL="${CAGE_PULL_INTERVAL:-86400}"
+# Lazy pull: refresh :latest at most once per this many seconds. Default 0 means
+# check the registry on every launch so a stale local image is never run; an
+# unchanged :latest only costs a cheap digest check, and an unreachable registry
+# falls back to the cached image (DESIGN §5/§13).
+CAGE_PULL_INTERVAL="${CAGE_PULL_INTERVAL:-0}"
 
 # Optional sidecar storage driver override ("vfs" if fuse-overlayfs is
 # unavailable on the host — DESIGN §8).
