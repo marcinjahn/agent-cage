@@ -282,7 +282,8 @@ Key points:
 | `~/.claude/statusline-command.sh` | same (file)         | **ro** | host-executed; ro (§2)                                    |
 | `~/.claude.json`                  | same                | **rw** | MCP + project config                                      |
 | `~/.gitconfig`                    | same (file)         | ro     | commit author identity                                    |
-| `~/.config/jj/config.toml`        | same (file)         | ro     | jj identity                                               |
+| `~/.config/jj`                    | same                | **rw** | jj per-repo trust cache (`repos/`) — user-owned parent    |
+| `~/.config/jj/config.toml`        | same (file)         | ro     | jj identity (nested ro over the rw dir above)             |
 | `~/scripts`                       | same                | ro     | skills' scripts; provides `limited` (put on PATH)         |
 | `~/.config/nvim`                  | same                | ro     | formatting hook — exact nvim config (§9)                  |
 | `~/.local/share/nvim`             | same                | ro     | nvim plugins + mason-installed formatters (§9)            |

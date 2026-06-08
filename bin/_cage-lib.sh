@@ -208,6 +208,13 @@ _cage_add_mounts() {
 
   # VCS identity (ro) so commits carry the right author; no SSH keys (DESIGN §7).
   _cage_bind ro "$HOME/.gitconfig" "$CAGE_HOME/.gitconfig"
+  # jj caches each repo's gitoxide trust level under ~/.config/jj/repos/<hash>. A
+  # lone file-mount of config.toml lets podman create the parent ~/.config/jj owned
+  # by root, so jj (uid 1000) can't write repos/ -> "Failed to determine the secure
+  # config for a repo". Mount the host dir rw so it's user-owned (trust records also
+  # persist + match the host, since ~/code lives at the same path); config.toml
+  # stays ro, nested on top.
+  _cage_bind rw "$HOME/.config/jj" "$CAGE_HOME/.config/jj"
   _cage_bind ro "$HOME/.config/jj/config.toml" "$CAGE_HOME/.config/jj/config.toml"
 
   # Skills' scripts (on PATH) + puff symlink target (resolves ~/code symlinks).
