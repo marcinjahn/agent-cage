@@ -90,8 +90,10 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
     && rm -f /tmp/dotnet-install.sh
 # ~/.local/bin holds the native-installed Claude binary; it must be on the ENV
 # PATH (not just cage-env.sh) so the exec-form CMD, which runs without a shell
-# and never sources BASH_ENV, can resolve `claude`.
-ENV PATH=/home/mnj/.local/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/ctx7/bin:/opt/pnpm/bin:/opt/cage/bin:/usr/local/bin:$PATH
+# and never sources BASH_ENV, can resolve `claude`. ~/scripts is here for the
+# same reason: claude inherits this PATH and passes it to subprocesses it spawns
+# directly (e.g. tools invoking `limited`), which likewise bypass BASH_ENV.
+ENV PATH=/home/mnj/.local/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/ctx7/bin:/opt/pnpm/bin:/opt/cage/bin:/home/mnj/scripts:/usr/local/bin:$PATH
 
 # csharpier as a baked global tool (formatter fallback, DESIGN §9). Lives in a
 # plain image path (not a volume) so the daily rebuild owns its version.
