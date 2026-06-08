@@ -1,27 +1,117 @@
 #!/usr/bin/env bash
-# claude-cage — run Claude Code with full permissions inside the cage (DESIGN §6).
+# claude-cage — run Claude Code inside the cage (DESIGN §6).
 #
 # Behaves like `claude` but executes in an isolated, resource-capped container
 # with the host integration (settings, sessions, hooks, toolchains, creds,
 # notifications, ports, testcontainers) preserved. Extra args are forwarded.
+#
+# The permission mode is selectable with --mode (default: auto). Everything the
+# cage doesn't recognize is forwarded verbatim to `claude`.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/_cage-lib.sh
 source "$DIR/_cage-lib.sh"
 
-# 1. Require the cwd to be under ~/code (the only rw work area).
+CAGE_MODE_DEFAULT="auto"
+
+usage() {
+  cat <<'EOF'
+claude-cage — run Claude Code inside the isolated agent-cage container.
+
+USAGE:
+  claude-cage [--mode <mode>] [claude args…]
+
+OPTIONS:
+  -m, --mode <mode>   Permission mode for the session (default: auto).
+  -h, --help          Show this help and exit.
+
+  Any other argument is forwarded verbatim to `claude`.
+
+MODES:
+  auto          Claude decides per action; prompts only for risky ones. The
+                cage's default — a safer alternative to bypassing every check.
+  default       Standard Claude Code prompting for every permission.
+  accept-edits  Auto-accept file edits; still prompt for other actions.
+  plan          Plan-only; Claude proposes but does not execute.
+  dont-ask      Lockdown: never prompt — auto-allow only what your settings'
+                permissions.allow rules cover, auto-deny everything else
+                (claude's `dontAsk`). For unattended runs with a curated allowlist.
+  bypass        Skip ALL permission checks, including deny rules and protected
+                paths (claude's --dangerously-skip-permissions). Fully
+                unattended; relies entirely on the cage for safety.
+
+EXAMPLES:
+  claude-cage                          # auto mode (default)
+  claude-cage --mode bypass            # skip every permission check
+  claude-cage -m plan "design X"       # plan mode with a prompt
+  claude-cage --mode accept-edits -c   # accept edits, continue last session
+
+The session always runs inside the cage; the chosen mode only governs how
+Claude asks for permission within it. See README.md / DESIGN.md.
+EOF
+}
+
+# Translate a friendly mode name into the claude args that select it.
+# Populates the global MODE_ARGS array.
+cage_mode_args() {
+  local mode="$1"
+  case "$mode" in
+  auto) MODE_ARGS=(--permission-mode auto) ;;
+  default) MODE_ARGS=(--permission-mode default) ;;
+  accept-edits | acceptEdits) MODE_ARGS=(--permission-mode acceptEdits) ;;
+  plan) MODE_ARGS=(--permission-mode plan) ;;
+  dont-ask | dontAsk) MODE_ARGS=(--permission-mode dontAsk) ;;
+  bypass | skip) MODE_ARGS=(--dangerously-skip-permissions) ;;
+  *) cage_die "unknown mode '$mode' (see 'claude-cage --help')" ;;
+  esac
+}
+
+# 1. Parse cage options; collect the rest to forward to claude.
+MODE="$CAGE_MODE_DEFAULT"
+declare -a CLAUDE_ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  -m | --mode)
+    [ $# -ge 2 ] || cage_die "--mode needs a value (see 'claude-cage --help')"
+    MODE="$2"
+    shift 2
+    ;;
+  --mode=*)
+    MODE="${1#--mode=}"
+    shift
+    ;;
+  --)
+    shift
+    CLAUDE_ARGS+=("$@")
+    break
+    ;;
+  *)
+    CLAUDE_ARGS+=("$1")
+    shift
+    ;;
+  esac
+done
+
+declare -a MODE_ARGS
+cage_mode_args "$MODE"
+
+# 2. Require the cwd to be under ~/code (the only rw work area).
 case "$PWD/" in
 "$HOME/code/"*) ;;
 *) cage_die "run from within $HOME/code (cwd: $PWD)" ;;
 esac
 
-# 2. Ensure the image is present (rate-limited pull) and 3. the sidecar is up.
+# 3. Ensure the image is present (rate-limited pull) and 4. the sidecar is up.
 cage_lazy_pull
 cage_sidecar_ensure || cage_err "continuing without a healthy docker sidecar (testcontainers will fail)"
 
-# 4. Launch.
+# 5. Launch.
 declare -a RUN_ARGS
 cage_build_run_args
 exec podman run -it "${RUN_ARGS[@]}" "$CAGE_IMAGE" \
-  claude --dangerously-skip-permissions "$@"
+  claude "${MODE_ARGS[@]}" "${CLAUDE_ARGS[@]}"

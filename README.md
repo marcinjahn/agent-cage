@@ -1,9 +1,10 @@
 # agent-cage
 
-Run **Claude Code with all permissions** (`--dangerously-skip-permissions`) without
-endangering the host. Claude may freely change anything inside `~/code` and `~/.claude`,
-but cannot reach or damage the host OS, dotfiles, SSH/GPG keys, browser data, or anything
-else in your home directory.
+Run **Claude Code** in a selectable permission mode (default: `auto`) without endangering
+the host. Claude may freely change anything inside `~/code` and `~/.claude`, but cannot
+reach or damage the host OS, dotfiles, SSH/GPG keys, browser data, or anything else in your
+home directory. For a fully unattended session, `--mode bypass` skips every permission
+check (`--dangerously-skip-permissions`).
 
 It runs Claude inside a rootless **Podman** container that transparently preserves your
 host integration: settings, sessions, hooks, toolchains, credentials, notifications, port
@@ -17,13 +18,15 @@ and rationale.
 
 ## What you get
 
-| Command               | What it does                                                  |
-| --------------------- | ------------------------------------------------------------- |
-| `claude-cage [args…]` | like `claude` but inside the cage; forwards args to `claude`  |
-| `cage`                | interactive shell in a fresh cage container (inspect/install) |
-| `cage docker status`  | inspect the shared rootless-docker sidecar (testcontainers)   |
-| `cage docker stop`    | stop/remove the sidecar                                       |
-| `cage docker reset`   | recreate the sidecar, pruning all its images/containers/data  |
+| Command                     | What it does                                                  |
+| --------------------------- | ------------------------------------------------------------- |
+| `claude-cage [args…]`       | like `claude` but inside the cage; forwards args to `claude`  |
+| `claude-cage --mode <mode>` | pick the permission mode (default `auto`; see `--help`)       |
+| `claude-cage --help`        | list modes and usage                                          |
+| `cage`                      | interactive shell in a fresh cage container (inspect/install) |
+| `cage docker status`        | inspect the shared rootless-docker sidecar (testcontainers)   |
+| `cage docker stop`          | stop/remove the sidecar                                       |
+| `cage docker reset`         | recreate the sidecar, pruning all its images/containers/data  |
 
 ## Requirements
 
