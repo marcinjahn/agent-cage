@@ -199,6 +199,9 @@ _cage_add_mounts() {
   _cage_bind rw "$HOME/.claude" "$CAGE_HOME/.claude"
   _cage_bind rw "$HOME/.claude.json" "$CAGE_HOME/.claude.json"
 
+  # Scratch space the triage-issue skill clones repos into and writes reports to.
+  _cage_bind rw "$HOME/triage-issues" "$CAGE_HOME/triage-issues"
+
   # Host-executed scripts within ~/.claude, overlaid read-only so an injected
   # prompt cannot plant code that later runs on the host as you (DESIGN §2/§7).
   _cage_bind ro "$HOME/.claude/hooks" "$CAGE_HOME/.claude/hooks"
