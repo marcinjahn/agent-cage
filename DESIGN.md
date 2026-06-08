@@ -282,6 +282,9 @@ Key points:
 | `~/.claude/statusline-command.sh` | same (file)         | **ro** | host-executed; ro (§2)                                    |
 | `~/.claude.json`                  | same                | **rw** | MCP + project config                                      |
 | `~/.gitconfig`                    | same (file)         | ro     | commit author identity                                    |
+| `~/.gitconfig-code`               | same (file)         | ro     | `includeIf` for `~/code/` repos (excludesfile override)   |
+| `~/.gitignore`                    | same (file)         | ro     | global excludesfile (`~/.gitconfig`)                      |
+| `~/.gitignore-code`               | same (file)         | ro     | global excludesfile for `~/code/` repos                   |
 | `~/.config/jj`                    | same                | **rw** | jj per-repo trust cache (`repos/`) — user-owned parent    |
 | `~/.config/jj/config.toml`        | same (file)         | ro     | jj identity (nested ro over the rw dir above)             |
 | `~/scripts`                       | same                | ro     | skills' scripts; provides `limited` (put on PATH)         |

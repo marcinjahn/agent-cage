@@ -207,7 +207,15 @@ _cage_add_mounts() {
   _cage_bind ro "$HOME/.claude/statusline-command.sh" "$CAGE_HOME/.claude/statusline-command.sh"
 
   # VCS identity (ro) so commits carry the right author; no SSH keys (DESIGN §7).
+  # .gitconfig's `includeIf "gitdir:~/code/"` pulls in .gitconfig-code, which is the
+  # active config for repos under ~/code (the cage's workspace); mount it too or the
+  # include silently no-ops. Both point `core.excludesfile` at a global ignore file
+  # (~/.gitignore, ~/.gitignore-code) via absolute paths that match the container
+  # home, so mount those ro as well — otherwise git/jj in the cage see no excludes.
   _cage_bind ro "$HOME/.gitconfig" "$CAGE_HOME/.gitconfig"
+  _cage_bind ro "$HOME/.gitconfig-code" "$CAGE_HOME/.gitconfig-code"
+  _cage_bind ro "$HOME/.gitignore" "$CAGE_HOME/.gitignore"
+  _cage_bind ro "$HOME/.gitignore-code" "$CAGE_HOME/.gitignore-code"
   # jj caches each repo's gitoxide trust level under ~/.config/jj/repos/<hash>. A
   # lone file-mount of config.toml lets podman create the parent ~/.config/jj owned
   # by root, so jj (uid 1000) can't write repos/ -> "Failed to determine the secure
