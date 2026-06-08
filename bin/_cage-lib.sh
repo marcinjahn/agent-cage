@@ -45,6 +45,32 @@ cage_die() {
 }
 
 # --- image pull (rate-limited) ------------------------------------------------
+# True (0) when the registry holds a digest that differs from the local image —
+# i.e. a pull would actually download a new image. Uses skopeo for a cheap,
+# download-free comparison; if skopeo is missing or the check is inconclusive we
+# return 0 so the caller still pulls (never silently run a stale image).
+cage_image_outdated() {
+  if ! command -v skopeo >/dev/null 2>&1; then
+    cage_err "skopeo not installed — can't check the registry cheaply; pulling unconditionally (install skopeo to skip unchanged images)"
+    return 0
+  fi
+
+  local remote local_digests
+  remote="$(skopeo inspect --format '{{ .Digest }}' "docker://$CAGE_IMAGE" 2>/dev/null)" || return 0
+  [ -n "$remote" ] || return 0
+
+  # The local image may be known by its manifest digest and/or one or more repo
+  # digests; a match against any of them means we already have what's served.
+  local_digests="$(podman image inspect \
+    --format '{{ .Digest }} {{ range .RepoDigests }}{{ . }} {{ end }}' \
+    "$CAGE_IMAGE" 2>/dev/null)" || return 0
+
+  case "$local_digests" in
+  *"$remote"*) return 1 ;; # up to date
+  *) return 0 ;;           # newer image available
+  esac
+}
+
 cage_lazy_pull() {
   local stamp="$CAGE_STATE_DIR/last-pull" now last=0
   mkdir -p "$CAGE_STATE_DIR"
@@ -61,7 +87,13 @@ cage_lazy_pull() {
   [ -f "$stamp" ] && last="$(cat "$stamp" 2>/dev/null || echo 0)"
   if [ $((now - last)) -ge "$CAGE_PULL_INTERVAL" ]; then
     cage_err "checking for a newer $CAGE_IMAGE…"
-    podman pull "$CAGE_IMAGE" >/dev/null 2>&1 || cage_err "pull failed; using cached image"
+    if cage_image_outdated; then
+      cage_err "newer image available — downloading…"
+      # Let podman's pull progress reach the terminal (stdout -> stderr, keeping
+      # our stdout clean) so a download isn't a silent stall. Unchanged images
+      # stay quiet because the digest check above skips the pull entirely.
+      podman pull "$CAGE_IMAGE" >&2 || cage_err "pull failed; using cached image"
+    fi
     echo "$now" >"$stamp"
   fi
 }
