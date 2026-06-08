@@ -100,11 +100,8 @@ done
 declare -a MODE_ARGS
 cage_mode_args "$MODE"
 
-# 2. Require the cwd to be under ~/code (the only rw work area).
-case "$PWD/" in
-"$HOME/code/"*) ;;
-*) cage_die "run from within $HOME/code (cwd: $PWD)" ;;
-esac
+# 2. Require the cwd to be under one of the rw work areas (DESIGN §6).
+cage_require_workdir
 
 # 3. Ensure the image is present (rate-limited pull) and 4. the sidecar is up.
 cage_lazy_pull

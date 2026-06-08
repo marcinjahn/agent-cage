@@ -35,6 +35,13 @@ CAGE_SOCK="/sock/docker.sock"
 
 CAGE_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/agent-cage"
 
+# Host dirs that are bind-mounted rw at the same path inside the cage, so the cwd
+# can live under any of them (-w "$PWD" resolves). claude-cage refuses to launch
+# from outside these — otherwise podman would create an empty workdir and Claude
+# would see none of your files. Keep in sync with the rw work binds in
+# _cage_add_mounts.
+CAGE_WORK_ROOTS=("$HOME/code" "$HOME/triage-issues")
+
 # Repo-relative assets (the sidecar's subordinate-id map — DESIGN §8).
 CAGE_ETC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../etc" && pwd)"
 
@@ -42,6 +49,16 @@ cage_err() { printf 'agent-cage: %s\n' "$*" >&2; }
 cage_die() {
   cage_err "$*"
   exit 1
+}
+
+# Die unless the cwd is under one of the rw work roots (so -w "$PWD" resolves to a
+# real, mounted dir inside the cage rather than an empty one).
+cage_require_workdir() {
+  local root
+  for root in "${CAGE_WORK_ROOTS[@]}"; do
+    case "$PWD/" in "$root/"*) return 0 ;; esac
+  done
+  cage_die "run from within one of: ${CAGE_WORK_ROOTS[*]} (cwd: $PWD)"
 }
 
 # --- image pull (rate-limited) ------------------------------------------------
