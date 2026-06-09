@@ -98,8 +98,10 @@ and rationale.
 ## Notes & limitations
 
 - **Pushing code:** commits get the right author (git + jj configs mounted ro). GitHub
-  push works over **https** via the mounted `gh` auth. **No SSH keys** are mounted, so
-  ssh-remote pushes won't work from the cage — push those from the host. (`DESIGN.md` §7)
+  push works over **https** via the forwarded `gh` auth — **No SSH keys** are mounted, so
+  the cage rewrites `git@github.com:` remotes to https transparently (cage-only; the host
+  keeps using SSH). Non-GitHub ssh-remote pushes still won't work from the cage — push
+  those from the host. (`DESIGN.md` §7)
 - **Ports:** `--network host` makes host↔cage port-forwarding free, but parallel sessions
   share the host port space. Rootless Podman can't bind ports <1024 — use high ports.
 - **Adding a language** (Rust/Python/Go/…): add one `RUN` block in the clearly-labelled

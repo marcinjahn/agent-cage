@@ -298,6 +298,22 @@ _cage_add_envs() {
   if gh_token="$(gh auth token 2>/dev/null)" && [ -n "$gh_token" ]; then
     export GH_TOKEN="$gh_token"
     RUN_ARGS+=(--env GH_TOKEN)
+
+    # No SSH keys are mounted (DESIGN §7), so GitHub SSH remotes (git@github.com:…)
+    # can't push from the cage. Transparently route github.com over https and
+    # authenticate with the forwarded GH_TOKEN via gh's git-credential helper.
+    # Injected as cage-only env (not the ro host .gitconfig) so the host keeps
+    # using SSH; jj picks it up because git.subprocess=true shells out to git.
+    # Two identical insteadOf keys = a git multivar, covering both ssh URL forms.
+    RUN_ARGS+=(
+      --env "GIT_CONFIG_COUNT=3"
+      --env "GIT_CONFIG_KEY_0=url.https://github.com/.insteadOf"
+      --env "GIT_CONFIG_VALUE_0=git@github.com:"
+      --env "GIT_CONFIG_KEY_1=url.https://github.com/.insteadOf"
+      --env "GIT_CONFIG_VALUE_1=ssh://git@github.com/"
+      --env "GIT_CONFIG_KEY_2=credential.https://github.com.helper"
+      --env "GIT_CONFIG_VALUE_2=!gh auth git-credential"
+    )
   fi
 
   # Forward any CLAUDE_* set on the host (CLAUDE_NO_FORMAT, CLAUDE_BYPASS_BUILD_SUMMARY, …).

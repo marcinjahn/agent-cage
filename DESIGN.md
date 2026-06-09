@@ -308,11 +308,17 @@ Key points:
 `:Z` would relabel the entire ~75 GB `~/code` tree and mutate host labels. Do not relabel.
 
 **Version control:** git/jj identity is mounted ro so commits have the right author. **No
-SSH keys / ssh-agent** are forwarded, so ssh-remote pushes won't work — this is the
-intended safe default. Pushing to **GitHub works over https** via the forwarded `GH_TOKEN`
-(the gh config is mounted but the token itself lives in the host keyring — see "GitHub
-auth" in §4 and the `--env` list in §6). To push from the cage, use `gh`-backed https
-remotes; otherwise push from the host.
+SSH keys / ssh-agent** are forwarded, so non-GitHub ssh-remote pushes won't work — this is
+the intended safe default. Pushing to **GitHub works over https** via the forwarded
+`GH_TOKEN` (the gh config is mounted but the token itself lives in the host keyring — see
+"GitHub auth" in §4 and the `--env` list in §6). Because most repos use `git@github.com:`
+remotes, the wrapper injects cage-only git config (via `GIT_CONFIG_*` env, not the ro host
+`.gitconfig`) that rewrites GitHub SSH URLs to https (`url.…insteadOf`) and sets
+`credential.https://github.com.helper = !gh auth git-credential`, so the forwarded token
+authenticates the push. This reuses the already-accepted `GH_TOKEN` (no new secret, §2),
+stays scoped to github.com, and leaves the host using SSH. `jj` inherits it because
+`git.subprocess=true` shells out to the `git` binary. For non-GitHub ssh remotes, push from
+the host.
 
 **GCR / Artifact Registry auth (testcontainers):** the host `~/.docker/config.json`
 delegates GCR / Artifact Registry hosts to the `gcloud` credential helper, which can't run
