@@ -245,9 +245,11 @@ _cage_add_mounts() {
   _cage_bind rw "$HOME/.config/jj" "$CAGE_HOME/.config/jj"
   _cage_bind ro "$HOME/.config/jj/config.toml" "$CAGE_HOME/.config/jj/config.toml"
 
-  # Skills' scripts (on PATH) + puff symlink target (resolves ~/code symlinks).
+  # Skills' scripts (on PATH).
   _cage_bind ro "$HOME/scripts" "$CAGE_HOME/scripts"
-  _cage_bind ro "$HOME/.local/share/puff/projects" "$CAGE_HOME/.local/share/puff/projects"
+  # puff symlink target (resolves ~/code symlinks). rw because repos symlink their
+  # `my-prds` dir here, and those PRDs are written to from within the cage.
+  _cage_bind rw "$HOME/.local/share/puff/projects" "$CAGE_HOME/.local/share/puff/projects"
 
   # nvim config + data (ro) for the formatting hook (DESIGN §9). State is a volume.
   _cage_bind ro "$HOME/.config/nvim" "$CAGE_HOME/.config/nvim"
