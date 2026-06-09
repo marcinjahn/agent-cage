@@ -238,10 +238,22 @@ USER mnj
 # `playwright-cli install` (which only scaffolds skills). A global install nests
 # playwright-core under @playwright/cli and its package `exports` hide cli.js, so
 # the entrypoint is located by path rather than module resolution.
-RUN eval "$(fnm env --shell bash)" \
+#
+# The extraction runs under a throwaway Node 22 (temp FNM_DIR, deleted after) to
+# dodge a yauzl regression that hangs browser-archive extraction at "100%" on
+# Node 24.16.0+ / 26.x (microsoft/playwright#40724). @playwright/cli pins a stale
+# playwright-core alpha that predates the fix (shipped in 1.60.0), and bumping it
+# isn't an option — its chromium revision must match the runtime CLI's. Pinning
+# an unaffected Node for the install sidesteps the bug without touching versions.
+# Runtime browser launches don't extract archives, so the default LTS is fine.
+RUN export FNM_DIR=/tmp/fnm-pw \
+    && eval "$(fnm env --shell bash)" \
+    && fnm install 22 \
+    && fnm use 22 \
     && npm install -g --prefix /opt/playwright @playwright/cli \
     && node "$(find /opt/playwright/lib/node_modules -path '*playwright-core/cli.js' | head -n1)" install chromium firefox \
-    && { /opt/playwright/bin/playwright-cli --version > /home/mnj/.cage-playwright-version 2>/dev/null || true; }
+    && { /opt/playwright/bin/playwright-cli --version > /home/mnj/.cage-playwright-version 2>/dev/null || true; } \
+    && rm -rf /tmp/fnm-pw
 
 # BASH_ENV is set last so it doesn't perturb the build RUNs above; from here on
 # every non-interactive bash (Claude's Bash tool, hooks) sources the cage env.
