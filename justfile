@@ -9,4 +9,6 @@ default:
 # Build the cage image locally with podman (heavy: Fedora + .NET + node + the
 # Playwright browsers — first build is a full cold build, no shared GHCR cache).
 build:
-    podman build -t {{image}} .
+    # --format docker: the Dockerfile uses the SHELL instruction, which the
+    # default OCI image format doesn't support (podman would warn and ignore it).
+    podman build --format docker -t {{image}} .
