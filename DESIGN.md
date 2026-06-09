@@ -188,7 +188,13 @@ mason-compiled nvim formatters — run correctly).
    layer, not the cage volume). No token is baked: the wrapper forwards the host GitHub
    token as `GH_TOKEN` at runtime (§7). Likewise install the **Context7 CLI** (`ctx7` npm
    global, into a dedicated `/opt/ctx7` image-layer prefix); its OAuth tokens are not baked
-   but bind-mounted from the host (§7).
+   but bind-mounted from the host (§7). Likewise install the **Playwright CLI**
+   (`@playwright/cli` npm global, into a dedicated `/opt/playwright` image-layer prefix) for
+   the `playwright-cli` browser-automation skill. Bake the Chromium and Firefox browsers into
+   a fixed `PLAYWRIGHT_BROWSERS_PATH` (image layer — no volume covers `~/.cache`) so they are
+   present at runtime; their OS libraries come from Fedora's repos (Playwright's `install-deps`
+   only targets Debian/Ubuntu). WebKit is omitted — its `libwpe`/`wpebackend-fdo` aren't
+   packaged for Fedora.
 9. **Rootless docker engine** for the sidecar image (may be a _separate_ image — see §8).
 10. Set `TZ=Europe/Warsaw` (CET), `DISABLE_AUTOUPDATER=1`, and `COPILOT_AUTO_UPDATE=false`
     (keep the image-owned Copilot version from drifting in-session) as image env.

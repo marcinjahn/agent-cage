@@ -98,7 +98,7 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
 # and never sources BASH_ENV, can resolve `claude`. ~/scripts is here for the
 # same reason: claude inherits this PATH and passes it to subprocesses it spawns
 # directly (e.g. tools invoking `limited`), which likewise bypass BASH_ENV.
-ENV PATH=/home/mnj/.local/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/ctx7/bin:/opt/pnpm/bin:/opt/cage/bin:/home/mnj/scripts:/usr/local/bin:$PATH
+ENV PATH=/home/mnj/.local/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/ctx7/bin:/opt/pnpm/bin:/opt/playwright/bin:/opt/cage/bin:/home/mnj/scripts:/usr/local/bin:$PATH
 
 # csharpier as a baked global tool (formatter fallback, DESIGN §9). Lives in a
 # plain image path (not a volume) so the daily rebuild owns its version.
@@ -116,12 +116,12 @@ RUN groupadd -g 1000 mnj \
     && useradd -m -u 1000 -g 1000 -s /bin/bash mnj \
     # Volume mountpoints owned by mnj so podman's copy-up preserves correct
     # ownership and runtime writes (new node versions, npm -g) succeed.
-    && mkdir -p /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /opt/pnpm \
+    && mkdir -p /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /opt/pnpm /opt/playwright \
         /home/mnj/.local/bin \
         /home/mnj/.npm \
         /home/mnj/.nuget/packages \
         /home/mnj/.local/state/nvim \
-    && chown -R mnj:mnj /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /opt/pnpm /home/mnj
+    && chown -R mnj:mnj /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /opt/pnpm /opt/playwright /home/mnj
 
 # ---------------------------------------------------------------------------
 # 4. Shell environment (PATH, fnm, dotnet) — DESIGN §6/§9.
@@ -136,7 +136,8 @@ ENV FNM_DIR=/opt/fnm \
     NPM_CONFIG_PREFIX=/opt/cage \
     TZ=Europe/Warsaw \
     DISABLE_AUTOUPDATER=1 \
-    COPILOT_AUTO_UPDATE=false
+    COPILOT_AUTO_UPDATE=false \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright/browsers
 
 # ---------------------------------------------------------------------------
 # 5. Per-user toolchains (node + node-based formatters + Claude Code)
@@ -211,6 +212,34 @@ USER root
 RUN dnf -y install python3 python3-pip \
     && dnf clean all
 USER mnj
+
+# Playwright CLI (@playwright/cli) + Chromium/Firefox browsers, for the
+# playwright-cli skill (browser automation). Browser OS libraries come from
+# Fedora's repos: Playwright's own `install-deps` only supports Debian/Ubuntu,
+# so the Chromium+Firefox shared-lib set is listed explicitly (every name was
+# validated against Fedora 43). --skip-unavailable keeps the daily rebuild green
+# if Fedora ever renames one. WebKit is intentionally omitted — its libwpe /
+# wpebackend-fdo aren't packaged for Fedora. dnf needs root, hence the dance.
+USER root
+RUN dnf -y --skip-unavailable install \
+        alsa-lib at-spi2-atk at-spi2-core atk cairo cairo-gobject cups-libs \
+        dbus-libs dbus-glib expat glib2 gtk3 gdk-pixbuf2 \
+        libX11 libXcomposite libXdamage libXext libXfixes libXrandr libXtst \
+        libXScrnSaver libXt libdrm libgcc libxcb libxkbcommon libxshmfence \
+        mesa-libgbm mesa-libEGL nspr nss pango \
+    && dnf clean all
+USER mnj
+
+# CLI into a dedicated /opt/playwright prefix (image layer, NOT the /opt/cage
+# volume) so the daily rebuild owns the version. The browser binaries are baked
+# into a fixed PLAYWRIGHT_BROWSERS_PATH (also an image layer — no volume covers
+# ~/.cache) and resolved there at runtime via the same env var. Browser install
+# is driven through the bundled playwright-core (a dep of @playwright/cli), not
+# `playwright-cli install` (which only scaffolds skills).
+RUN eval "$(fnm env --shell bash)" \
+    && npm install -g --prefix /opt/playwright @playwright/cli \
+    && node "$(npm root -g --prefix /opt/playwright)/playwright-core/cli.js" install chromium firefox \
+    && { /opt/playwright/bin/playwright-cli --version > /home/mnj/.cage-playwright-version 2>/dev/null || true; }
 
 # BASH_ENV is set last so it doesn't perturb the build RUNs above; from here on
 # every non-interactive bash (Claude's Bash tool, hooks) sources the cage env.
