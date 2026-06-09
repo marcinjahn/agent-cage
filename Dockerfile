@@ -200,6 +200,13 @@ RUN eval "$(fnm env --shell bash)" \
 #
 # ---------------------------------------------------------------------------
 
+# Python — interpreter + pip from Fedora's repo (tracks latest 3.x). dnf needs
+# root, so this drops back to USER root and restores USER mnj afterwards.
+USER root
+RUN dnf -y install python3 python3-pip \
+    && dnf clean all
+USER mnj
+
 # BASH_ENV is set last so it doesn't perturb the build RUNs above; from here on
 # every non-interactive bash (Claude's Bash tool, hooks) sources the cage env.
 ENV BASH_ENV=/etc/cage/env.sh
