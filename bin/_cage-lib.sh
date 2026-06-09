@@ -316,6 +316,14 @@ _cage_add_envs() {
     )
   fi
 
+  # Forward the host's terminal identity so colors match. Without these, podman
+  # defaults TERM to "xterm" and leaves COLORTERM unset, so Claude can't detect
+  # truecolor support and downsamples its theme to the 16-color ANSI palette —
+  # which the terminal renders with its brighter "bold" variants (the washed-out,
+  # "everything brighter" look). Passed by name (value via the wrapper's own env).
+  [ -n "${TERM:-}" ] && RUN_ARGS+=(--env TERM)
+  [ -n "${COLORTERM:-}" ] && RUN_ARGS+=(--env COLORTERM)
+
   # Forward any CLAUDE_* set on the host (CLAUDE_NO_FORMAT, CLAUDE_BYPASS_BUILD_SUMMARY, …).
   local name
   for name in $(env | grep -oE '^CLAUDE_[A-Za-z0-9_]+' || true); do
