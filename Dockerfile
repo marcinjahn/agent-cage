@@ -99,6 +99,9 @@ ENV PATH=/home/mnj/.local/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/op
 # plain image path (not a volume) so the daily rebuild owns its version.
 RUN dotnet tool install --tool-path /opt/dotnet-tools csharpier
 
+# csharp-ls — C# LSP server used by claude's LSP plugin. Same baked-tool path.
+RUN dotnet tool install --tool-path /opt/dotnet-tools csharp-ls
+
 # ---------------------------------------------------------------------------
 # 3. User + writable mountpoints
 # ---------------------------------------------------------------------------
@@ -146,6 +149,11 @@ RUN eval "$(fnm env --shell bash)" \
 # prettier + eslint fallbacks into the cage global prefix (DESIGN §5 step 5/§9).
 RUN eval "$(fnm env --shell bash)" \
     && npm install -g prettier eslint
+
+# typescript-language-server (+ typescript) — JS/TS LSP server for claude's LSP
+# plugin. Installed into the cage global prefix; expects both binaries on PATH.
+RUN eval "$(fnm env --shell bash)" \
+    && npm install -g typescript-language-server typescript
 
 # Claude Code — latest, via the native installer (standalone binary, no node
 # coupling). Installed under ~/.local/bin (image layer, not a volume) so the

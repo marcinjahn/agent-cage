@@ -175,6 +175,8 @@ mason-compiled nvim formatters — run correctly).
 5. **Formatters:** `csharpier` (`dotnet tool install -g`), `prettier`, `eslint`,
    `stylua`. Place them on PATH. (These must match what the host nvim `conform` config
    invokes; verify the conform config's formatter names at implementation time.)
+   **LSP servers (for claude's LSP plugin):** `csharp-ls` (`dotnet tool install -g`)
+   and `typescript-language-server` + `typescript` (`npm install -g`). On PATH.
 6. **`jj`** (jujutsu) + `git` + **`just`** (command runner) — install latest.
 7. **`docker` CLI** (client only — the daemon is the sidecar, §8) so `docker …` and
    testcontainers' client work via `DOCKER_HOST`.
