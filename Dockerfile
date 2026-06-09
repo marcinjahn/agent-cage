@@ -221,7 +221,7 @@ USER mnj
 # if Fedora ever renames one. WebKit is intentionally omitted — its libwpe /
 # wpebackend-fdo aren't packaged for Fedora. dnf needs root, hence the dance.
 USER root
-RUN dnf -y --skip-unavailable install \
+RUN dnf -y install --skip-unavailable \
         alsa-lib at-spi2-atk at-spi2-core atk cairo cairo-gobject cups-libs \
         dbus-libs dbus-glib expat glib2 gtk3 gdk-pixbuf2 \
         libX11 libXcomposite libXdamage libXext libXfixes libXrandr libXtst \
