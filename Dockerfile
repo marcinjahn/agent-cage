@@ -235,10 +235,12 @@ USER mnj
 # into a fixed PLAYWRIGHT_BROWSERS_PATH (also an image layer — no volume covers
 # ~/.cache) and resolved there at runtime via the same env var. Browser install
 # is driven through the bundled playwright-core (a dep of @playwright/cli), not
-# `playwright-cli install` (which only scaffolds skills).
+# `playwright-cli install` (which only scaffolds skills). A global install nests
+# playwright-core under @playwright/cli and its package `exports` hide cli.js, so
+# the entrypoint is located by path rather than module resolution.
 RUN eval "$(fnm env --shell bash)" \
     && npm install -g --prefix /opt/playwright @playwright/cli \
-    && node "$(npm root -g --prefix /opt/playwright)/playwright-core/cli.js" install chromium firefox \
+    && node "$(find /opt/playwright/lib/node_modules -path '*playwright-core/cli.js' | head -n1)" install chromium firefox \
     && { /opt/playwright/bin/playwright-cli --version > /home/mnj/.cage-playwright-version 2>/dev/null || true; }
 
 # BASH_ENV is set last so it doesn't perturb the build RUNs above; from here on
