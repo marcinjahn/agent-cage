@@ -22,6 +22,9 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # is for the rootless docker sidecar's storage; the build basics let mason/npm
 # compile anything not already prebuilt in the mounted data dir. libicu is
 # required by the .NET SDK (§2) for globalization — without it dotnet crashes.
+# The network tools (iputils=ping, bind-utils=dig/nslookup/host, iproute=ip/ss,
+# traceroute, mtr, nmap, nmap-ncat=nc, tcpdump, socat, whois, net-tools,
+# bind-utils, wget, telnet, lsof) cover typical connectivity/DNS debugging.
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng \
         git jq \
@@ -29,6 +32,8 @@ RUN dnf -y install \
         neovim libnotify \
         gcc gcc-c++ make \
         fuse-overlayfs \
+        iputils iproute traceroute mtr bind-utils \
+        nmap nmap-ncat tcpdump socat whois net-tools wget telnet lsof \
     && dnf clean all
 
 # GitHub CLI from the official repo (tracks latest).

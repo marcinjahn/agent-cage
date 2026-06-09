@@ -163,7 +163,9 @@ mason-compiled nvim formatters — run correctly).
 
 1. Create user `mnj` with uid/gid **1000**, home `/home/mnj`, login shell `bash`.
 2. System packages: `git jq gh libnotify` + nvim + build basics + fuse-overlayfs
-   (for rootless docker) + `acli` (install per Atlassian's Linux instructions).
+   (for rootless docker) + network tools (ping, dig/nslookup, ip/ss, traceroute,
+   mtr, nmap, nc, tcpdump, socat, whois, wget, telnet, lsof) + `acli` (install
+   per Atlassian's Linux instructions).
 3. **dotnet SDK:** **.NET 10** only. Add more versions later via the extra-toolchains
    block (below) if needed.
 4. **node via `fnm`:** install `fnm`; install the **latest LTS** node as the default.
