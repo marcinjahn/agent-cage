@@ -10,11 +10,17 @@ CAGE_SIDECAR_IMAGE="${CAGE_SIDECAR_IMAGE:-docker.io/library/docker:dind-rootless
 CAGE_MEMORY="${CAGE_MEMORY:-4g}"
 CAGE_CPUS="${CAGE_CPUS:-2}"
 
-# Lazy pull: refresh :latest at most once per this many seconds. Default 0 means
-# check the registry on every launch so a stale local image is never run; an
-# unchanged :latest only costs a cheap digest check, and an unreachable registry
-# falls back to the cached image (DESIGN §5/§13).
-CAGE_PULL_INTERVAL="${CAGE_PULL_INTERVAL:-0}"
+# Lazy pull: refresh :latest at most once per this many seconds. Default is once
+# a day so day-to-day launches are fast and don't hit the registry; the image is
+# rebuilt daily, so a daily check keeps :latest current without per-launch cost.
+# An unchanged :latest only costs a cheap digest check, and an unreachable
+# registry falls back to the cached image (DESIGN §5/§13). Set to 0 to check on
+# every launch, or pass --update / set CAGE_FORCE_PULL=1 to force a check now.
+CAGE_PULL_INTERVAL="${CAGE_PULL_INTERVAL:-86400}"
+
+# When 1, cage_lazy_pull checks the registry regardless of CAGE_PULL_INTERVAL.
+# Set by the wrappers' --update flag for an on-demand refresh.
+CAGE_FORCE_PULL="${CAGE_FORCE_PULL:-0}"
 
 # Optional sidecar storage driver override ("vfs" if fuse-overlayfs is
 # unavailable on the host — DESIGN §8).
@@ -102,7 +108,7 @@ cage_lazy_pull() {
   fi
 
   [ -f "$stamp" ] && last="$(cat "$stamp" 2>/dev/null || echo 0)"
-  if [ $((now - last)) -ge "$CAGE_PULL_INTERVAL" ]; then
+  if [ "$CAGE_FORCE_PULL" = "1" ] || [ $((now - last)) -ge "$CAGE_PULL_INTERVAL" ]; then
     cage_err "checking for a newer $CAGE_IMAGE…"
     if cage_image_outdated; then
       cage_err "newer image available — downloading…"

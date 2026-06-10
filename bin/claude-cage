@@ -24,6 +24,8 @@ USAGE:
 
 OPTIONS:
   -m, --mode <mode>   Permission mode for the session (default: auto).
+  -u, --update        Force a check for a newer image now, ignoring the
+                      pull interval (CAGE_PULL_INTERVAL, default: once a day).
   -h, --help          Show this help and exit.
 
   Any other argument is forwarded verbatim to `claude`.
@@ -83,6 +85,10 @@ while [ $# -gt 0 ]; do
     ;;
   --mode=*)
     MODE="${1#--mode=}"
+    shift
+    ;;
+  -u | --update)
+    CAGE_FORCE_PULL=1
     shift
     ;;
   --)

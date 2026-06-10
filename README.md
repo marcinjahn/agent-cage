@@ -88,13 +88,13 @@ and rationale.
 
 ## Configuration (env vars)
 
-| Var                    | Default                                | Purpose                                                  |
-| ---------------------- | -------------------------------------- | -------------------------------------------------------- |
-| `CAGE_IMAGE`           | `ghcr.io/marcinjahn/agent-cage:latest` | base image reference                                     |
-| `CAGE_MEMORY`          | `4g`                                   | per-session memory cap                                   |
-| `CAGE_CPUS`            | `2`                                    | per-session CPU cap                                      |
-| `CAGE_PULL_INTERVAL`   | `0`                                    | min seconds between `:latest` pulls (`0` = every launch) |
-| `CAGE_SIDECAR_STORAGE` | _(unset)_                              | set to `vfs` if fuse-overlayfs is absent                 |
+| Var                    | Default                                | Purpose                                                                          |
+| ---------------------- | -------------------------------------- | -------------------------------------------------------------------------------- |
+| `CAGE_IMAGE`           | `ghcr.io/marcinjahn/agent-cage:latest` | base image reference                                                             |
+| `CAGE_MEMORY`          | `4g`                                   | per-session memory cap                                                           |
+| `CAGE_CPUS`            | `2`                                    | per-session CPU cap                                                              |
+| `CAGE_PULL_INTERVAL`   | `86400`                                | min seconds between `:latest` checks (`0` = every launch; `--update` forces one) |
+| `CAGE_SIDECAR_STORAGE` | _(unset)_                              | set to `vfs` if fuse-overlayfs is absent                                         |
 
 ## Notes & limitations
 

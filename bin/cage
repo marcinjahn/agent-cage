@@ -16,10 +16,18 @@ source "$DIR/_cage-lib.sh"
 usage() {
   cat >&2 <<'EOF'
 usage:
-  cage                       interactive shell in a fresh cage container
+  cage [-u|--update]         interactive shell in a fresh cage container
+                             (--update forces a check for a newer image now)
   cage docker status|stop|reset
 EOF
 }
+
+# -u/--update forces an image-freshness check this launch, ignoring the pull
+# interval (CAGE_PULL_INTERVAL, default once a day); only meaningful for `shell`.
+if [ "${1:-}" = "-u" ] || [ "${1:-}" = "--update" ]; then
+  CAGE_FORCE_PULL=1
+  shift
+fi
 
 cmd="${1:-shell}"
 case "$cmd" in
