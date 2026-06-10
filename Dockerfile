@@ -98,7 +98,7 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
 # and never sources BASH_ENV, can resolve `claude`. ~/scripts is here for the
 # same reason: claude inherits this PATH and passes it to subprocesses it spawns
 # directly (e.g. tools invoking `limited`), which likewise bypass BASH_ENV.
-ENV PATH=/home/mnj/.local/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/ctx7/bin:/opt/pnpm/bin:/opt/playwright/bin:/opt/cage/bin:/home/mnj/scripts:/usr/local/bin:$PATH
+ENV PATH=/home/mnj/.local/bin:/home/mnj/.cargo/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/ctx7/bin:/opt/pnpm/bin:/opt/playwright/bin:/opt/cage/bin:/home/mnj/scripts:/usr/local/bin:$PATH
 
 # csharpier as a baked global tool (formatter fallback, DESIGN §9). Lives in a
 # plain image path (not a volume) so the daily rebuild owns its version.
@@ -200,11 +200,19 @@ RUN eval "$(fnm env --shell bash)" \
 # To add a language (Rust, Python, Go, …), append ONE self-contained RUN per
 # language below. Keep all toolchain installs in this block so the single edit
 # is obvious and the daily rebuild picks it up (DESIGN §5 "extensibility").
-#
-#   # Rust
-#   RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y
-#
 # ---------------------------------------------------------------------------
+
+# Rust — rustup with the default profile (tracks latest stable), so rustc, cargo
+# and the rustfmt formatter (DESIGN §9 fallback) come in one shot. The
+# rust-analyzer LSP server (for claude's LSP plugin) is added as a rustup
+# component. CARGO_HOME/RUSTUP_HOME default to ~/.cargo and ~/.rustup, which are
+# image layers (no volume covers them) so the daily rebuild owns the version;
+# ~/.cargo/bin is added to PATH (ENV above + cage-env.sh). --no-modify-path keeps
+# rustup from editing shell profiles, since PATH is managed centrally.
+RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
+        | sh -s -- -y --profile default --no-modify-path \
+    && /home/mnj/.cargo/bin/rustup component add rust-analyzer \
+    && /home/mnj/.cargo/bin/rustc --version > /home/mnj/.cage-rust-version 2>/dev/null || true
 
 # Python — interpreter + pip from Fedora's repo (tracks latest 3.x). dnf needs
 # root, so this drops back to USER root and restores USER mnj afterwards.

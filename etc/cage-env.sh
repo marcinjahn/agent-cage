@@ -46,7 +46,7 @@ export DISABLE_AUTOUPDATER=1
 # Mason bin first so the cage uses the host's exact formatter binaries/versions;
 # baked formatters (/opt/dotnet-tools, /usr/local/bin) are the fallback. Then
 # Claude (~/.local/bin), the cage global prefix, dotnet, and the user's scripts.
-export PATH="/home/mnj/.local/share/nvim/mason/bin:/home/mnj/.local/bin:/opt/cage/bin:/opt/dotnet-tools:/opt/dotnet:/home/mnj/scripts:/usr/local/bin:$PATH"
+export PATH="/home/mnj/.local/share/nvim/mason/bin:/home/mnj/.local/bin:/home/mnj/.cargo/bin:/opt/cage/bin:/opt/dotnet-tools:/opt/dotnet:/home/mnj/scripts:/usr/local/bin:$PATH"
 
 # fnm: put node on PATH, then make `.nvmrc`/`.node-version` select the node version
 # (DESIGN §13). --use-on-cd only fires on a `cd`, so a shell that *starts* inside the

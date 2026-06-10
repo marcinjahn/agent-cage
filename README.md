@@ -73,8 +73,9 @@ and rationale.
 
 ## How it works (quick map)
 
-- **Image** (`Dockerfile`): Fedora 43 + .NET 10, node via `fnm`, formatters
-  (csharpier/prettier/stylua/eslint), `jj`/`git`/`gh`/`acli`/`just`/`ctx7`/`pnpm`, docker CLI,
+- **Image** (`Dockerfile`): Fedora 43 + .NET 10, node via `fnm`, Python, Rust (rustup),
+  formatters (csharpier/prettier/stylua/eslint/rustfmt),
+  `jj`/`git`/`gh`/`acli`/`just`/`ctx7`/`pnpm`, docker CLI,
   the Playwright CLI (with Chromium/Firefox), Claude Code, and the GitHub Copilot CLI. Built
   daily and pushed to GHCR.
 - **Wrappers** (`bin/`): `claude-cage` and `cage` share `_cage-lib.sh`, which assembles all
