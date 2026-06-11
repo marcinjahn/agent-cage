@@ -71,6 +71,13 @@ RUN JUST_URL="$(curl -fsSL https://api.github.com/repos/casey/just/releases/late
     && chmod +x /usr/local/bin/just \
     && rm -f /tmp/just.tgz
 
+# yq (mikefarah, the Go YAML/JSON processor) — latest release, single static binary.
+RUN YQ_URL="$(curl -fsSL https://api.github.com/repos/mikefarah/yq/releases/latest \
+        | jq -r '.assets[] | select(.name == "yq_linux_amd64") | .browser_download_url' \
+        | head -n1)" \
+    && curl -fsSL "$YQ_URL" -o /usr/local/bin/yq \
+    && chmod +x /usr/local/bin/yq
+
 # stylua — latest release standalone binary (formatter fallback, DESIGN §9).
 RUN STYLUA_URL="$(curl -fsSL https://api.github.com/repos/JohnnyMorganz/StyLua/releases/latest \
         | jq -r '.assets[] | select(.name | test("linux-x86_64.zip$")) | .browser_download_url' \
@@ -218,6 +225,13 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
 # root, so this drops back to USER root and restores USER mnj afterwards.
 USER root
 RUN dnf -y install python3 python3-pip \
+    && dnf clean all
+USER mnj
+
+# Ruby — interpreter + rubygems from Fedora's repo (tracks latest 3.x). Same
+# root dance as Python since dnf needs root.
+USER root
+RUN dnf -y install ruby rubygems \
     && dnf clean all
 USER mnj
 
