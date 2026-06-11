@@ -26,7 +26,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # traceroute, mtr, nmap, nmap-ncat=nc, tcpdump, socat, whois, net-tools,
 # bind-utils, wget, telnet, lsof) cover typical connectivity/DNS debugging.
 RUN dnf -y install \
-        bash ca-certificates curl tar xz unzip findutils which procps-ng \
+        bash ca-certificates curl tar xz unzip findutils which procps-ng tree \
         git jq \
         libicu \
         neovim libnotify \
