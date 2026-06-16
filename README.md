@@ -73,7 +73,7 @@ and rationale.
 
 ## How it works (quick map)
 
-- **Image** (`Dockerfile`): Fedora 43 + .NET 10, node via `fnm`, Python, Ruby, Rust (rustup),
+- **Image** (`Dockerfile`): Fedora 43 + .NET 10 & 9, node via `fnm`, Python, Ruby, Rust (rustup),
   formatters (csharpier/prettier/stylua/eslint/rustfmt),
   `jj`/`git`/`gh`/`acli`/`just`/`jq`/`yq`/`ctx7`/`pnpm`, docker CLI,
   the Playwright CLI (with Chromium/Firefox), Claude Code, and the GitHub Copilot CLI. Built

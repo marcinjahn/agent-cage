@@ -11,6 +11,7 @@ FROM fedora:43
 # Pinned tool versions are intentionally avoided: the daily rebuild tracks
 # latest. Channels/minor lines that must stay fixed are set as ARGs here.
 ARG DOTNET_CHANNEL=10.0
+ARG DOTNET_CHANNEL_9=9.0
 
 # pipefail so a failed `curl` in a `curl … | bash` pipeline aborts the build.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -92,13 +93,14 @@ RUN curl -fsSL https://fnm.vercel.app/install \
         | bash -s -- --install-dir /usr/local/bin --skip-shell
 
 # ---------------------------------------------------------------------------
-# 2. .NET SDK (DESIGN §5 step 3) — .NET 10 only.
+# 2. .NET SDK (DESIGN §5 step 3) — .NET 10 + .NET 9, side-by-side.
 # ---------------------------------------------------------------------------
 ENV DOTNET_ROOT=/opt/dotnet \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1
 RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
     && bash /tmp/dotnet-install.sh --channel "$DOTNET_CHANNEL" --install-dir /opt/dotnet \
+    && bash /tmp/dotnet-install.sh --channel "$DOTNET_CHANNEL_9" --install-dir /opt/dotnet \
     && rm -f /tmp/dotnet-install.sh
 # ~/.local/bin holds the native-installed Claude binary; it must be on the ENV
 # PATH (not just cage-env.sh) so the exec-form CMD, which runs without a shell
