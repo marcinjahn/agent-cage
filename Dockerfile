@@ -28,6 +28,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # bind-utils, wget, telnet, lsof) cover typical connectivity/DNS debugging.
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng tree \
+        fd-find \
         git jq \
         libicu \
         neovim libnotify \
