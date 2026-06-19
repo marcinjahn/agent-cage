@@ -95,6 +95,7 @@ and rationale.
 | `CAGE_MEMORY`          | `4g`                                   | per-session memory cap                                                           |
 | `CAGE_CPUS`            | `2`                                    | per-session CPU cap                                                              |
 | `CAGE_PULL_INTERVAL`   | `86400`                                | min seconds between `:latest` checks (`0` = every launch; `--update` forces one) |
+| `CAGE_NO_PULL`         | `0`                                    | `1` skips the registry check and runs the cached image as-is (`--no-update`)     |
 | `CAGE_SIDECAR_STORAGE` | _(unset)_                              | set to `vfs` if fuse-overlayfs is absent                                         |
 
 ## Notes & limitations

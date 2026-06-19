@@ -26,6 +26,8 @@ OPTIONS:
   -m, --mode <mode>   Permission mode for the session (default: auto).
   -u, --update        Force a check for a newer image now, ignoring the
                       pull interval (CAGE_PULL_INTERVAL, default: once a day).
+  -n, --no-update     Skip the registry check and run the locally cached image
+                      as-is. Useful on a slow connection.
   -h, --help          Show this help and exit.
 
   Any other argument is forwarded verbatim to `claude`.
@@ -89,6 +91,10 @@ while [ $# -gt 0 ]; do
     ;;
   -u | --update)
     CAGE_FORCE_PULL=1
+    shift
+    ;;
+  -n | --no-update)
+    CAGE_NO_PULL=1
     shift
     ;;
   --)

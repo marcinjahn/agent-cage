@@ -22,6 +22,12 @@ CAGE_PULL_INTERVAL="${CAGE_PULL_INTERVAL:-86400}"
 # Set by the wrappers' --update flag for an on-demand refresh.
 CAGE_FORCE_PULL="${CAGE_FORCE_PULL:-0}"
 
+# When 1, cage_lazy_pull never contacts the registry — it uses the locally cached
+# image as-is (only a missing image is still pulled, since there's nothing to run
+# otherwise). Set by the wrappers' --no-update flag; handy on a slow connection.
+# Takes precedence over CAGE_FORCE_PULL.
+CAGE_NO_PULL="${CAGE_NO_PULL:-0}"
+
 # Optional sidecar storage driver override ("vfs" if fuse-overlayfs is
 # unavailable on the host — DESIGN §8).
 CAGE_SIDECAR_STORAGE="${CAGE_SIDECAR_STORAGE:-}"
@@ -106,6 +112,9 @@ cage_lazy_pull() {
     echo "$now" >"$stamp"
     return 0
   fi
+
+  # Stay offline: run whatever image we already have, skipping the registry check.
+  [ "$CAGE_NO_PULL" = "1" ] && return 0
 
   [ -f "$stamp" ] && last="$(cat "$stamp" 2>/dev/null || echo 0)"
   if [ "$CAGE_FORCE_PULL" = "1" ] || [ $((now - last)) -ge "$CAGE_PULL_INTERVAL" ]; then
