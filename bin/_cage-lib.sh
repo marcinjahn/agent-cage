@@ -359,23 +359,35 @@ cage_sidecar_start() {
   # Rootless dind under rootless Podman (DESIGN §8). Mounts ONLY ~/code so a
   # docker bind-mount escape is bounded to the same surface as the cage.
   #
-  # --privileged is REQUIRED here and, under ROOTLESS Podman, does NOT grant
-  # root-on-host: the container still runs entirely within the user's namespace
-  # (uid 1000 + the unprivileged subuid block). It only lifts the masked-path
-  # and dropped-capability restrictions so the *nested* dockerd can mount fresh
-  # /proc and /sys for the containers it launches — without it, container starts
-  # fail with `mounting "proc"/"sysfs" ... operation not permitted`. (This is the
-  # standard way the official docker:dind-rootless image is run.)
+  # We grant the privilege-lifting bits the nested dockerd needs — all caps,
+  # seccomp/AppArmor off, and unmasked /proc + /sys — WITHOUT --privileged.
+  # Those lifts let the *nested* dockerd mount fresh /proc and /sys for the
+  # containers it launches; without them, container starts fail with
+  # `mounting "proc"/"sysfs" ... operation not permitted`. Under ROOTLESS Podman
+  # this does NOT grant root-on-host: everything stays inside the user's
+  # namespace (uid 1000 + the unprivileged subuid block).
+  #
+  # We deliberately do NOT use --privileged: on Podman it also bind-mounts the
+  # host's entire /dev into the sidecar, leaking host hardware (e.g. hot-plugged
+  # /dev/bus/usb/* USB nodes). The nested rootless runc then fails to set up
+  # those group-owned nodes for every container it creates — `error creating
+  # device nodes: mount src=/dev/bus/usb/...` / OCI BadRequest — so testcontainers
+  # and any detached container silently never reach "running" (containers/podman#4900).
+  # The sidecar needs zero host devices; podman still provides the standard
+  # /dev/null,zero,… set in every container regardless.
   #
   # --userns=keep-id aligns the daemon's socket owner with the host uid so cage
   # sessions can use it; but it maps only the host's single 65536-id subuid block
   # into the container, so the image's stock rootless:100000:65536 map is out of
   # range and rootlesskit's newuidmap fails. We mount a fitted subid map instead.
   podman run -d --name "$CAGE_SIDECAR_NAME" \
-    --privileged \
+    --cap-add=all \
+    --security-opt seccomp=unconfined \
+    --security-opt apparmor=unconfined \
+    --security-opt unmask=all \
+    --security-opt label=disable \
     --userns=keep-id \
     --network host \
-    --security-opt label=disable \
     --stop-timeout 30 \
     -e "DOCKER_HOST=unix://$CAGE_SOCK" \
     -v "$CAGE_ETC/sidecar-subid:/etc/subuid:ro" \

@@ -372,17 +372,28 @@ wrapper. Image: **start with the official `docker:dind-rootless`** image — onl
 custom rootless-dockerd image if a concrete gap appears (document the reason if so). Runs
 as uid 1000.
 
-**`--privileged` (under rootless Podman) — required, and NOT a host-root hole.** The
-original plan (`--device /dev/fuse` + fuse-overlayfs, no `--privileged`) does not work: the
+**Privilege lifts (under rootless Podman) — required, and NOT a host-root hole.** The
+original plan (`--device /dev/fuse` + fuse-overlayfs, no privilege lifts) does not work: the
 daemon comes up healthy, but every container it tries to launch dies with
 `error mounting "proc"/"sysfs" … operation not permitted`. Rootless Podman masks paths and
 drops capabilities on the sidecar, and a nested rootless dockerd cannot mount fresh `/proc`
-and `/sys` for its containers under those restrictions; `--privileged` lifts them. Crucially,
-because the sidecar is launched by **rootless** Podman, `--privileged` stays entirely inside
-the user's namespace (uid 1000 + the unprivileged subuid block) — it does **not**
-reintroduce root-on-host. This is also how upstream `docker:dind-rootless` is normally run.
-(Distinct from the §2 rejection, which concerns _rootful_ privilege for the cage sessions.)
-Storage uses the native `overlayfs` driver; `CAGE_SIDECAR_STORAGE` can still force `vfs`.
+and `/sys` for its containers under those restrictions. We lift exactly those restrictions —
+`--cap-add=all`, `--security-opt seccomp=unconfined`, `--security-opt apparmor=unconfined`,
+`--security-opt unmask=all`, `--security-opt label=disable`. Crucially, because the sidecar
+is launched by **rootless** Podman, this stays entirely inside the user's namespace (uid 1000
+
+- the unprivileged subuid block) — it does **not** reintroduce root-on-host. (Distinct from
+  the §2 rejection, which concerns _rootful_ privilege for the cage sessions.)
+
+We deliberately **avoid `--privileged`**: on Podman it additionally bind-mounts the host's
+entire `/dev` into the sidecar, leaking host hardware (notably hot-plugged `/dev/bus/usb/*`
+nodes). The nested rootless runc then fails to set up those group-owned device nodes for
+every container it launches — `error creating device nodes: mount src=/dev/bus/usb/… ` / OCI
+`BadRequest` — so testcontainers and any detached container silently never reach "running"
+([containers/podman#4900](https://github.com/containers/podman/issues/4900)). The sidecar
+needs zero host devices; Podman still provides the standard `/dev/null`,`zero`,… set in
+every container regardless of the lifts above. Storage uses the native `overlayfs` driver;
+`CAGE_SIDECAR_STORAGE` can still force `vfs`.
 
 **Subordinate-id map — required for `keep-id`.** The sidecar uses `--userns=keep-id` so the
 daemon's socket is owned by the host uid (1000) and cage sessions can use it. But `keep-id`
@@ -521,9 +532,11 @@ hook, or shell-prompt customization.
 Implement, then verify each of these empirically:
 
 - [x] **Rootless docker sidecar** starts reliably and launches containers. Requires
-      rootless-Podman `--privileged` + a fitted `/etc/subuid`+`/etc/subgid` map (see §8);
-      the original no-`--privileged` plan could not mount `/proc`/`/sys` in nested
-      containers. Native `overlayfs` storage. This is the highest-risk component.
+      rootless-Podman privilege lifts (caps + unmask + seccomp/apparmor off, but NOT
+      `--privileged` — see §8) + a fitted `/etc/subuid`+`/etc/subgid` map; the bare
+      no-lifts plan could not mount `/proc`/`/sys` in nested containers, and `--privileged`
+      leaks host `/dev` (USB hot-plug breaks container init). Native `overlayfs` storage.
+      This is the highest-risk component.
 - [ ] **testcontainers** end-to-end: spin a DB from a test under `~/code`, with
       `DOCKER_HOST` → sidecar socket; verify port reachability and Ryuk cleanup. Document
       any `TESTCONTAINERS_*` env needed.
