@@ -359,22 +359,26 @@ cage_sidecar_start() {
   # Rootless dind under rootless Podman (DESIGN §8). Mounts ONLY ~/code so a
   # docker bind-mount escape is bounded to the same surface as the cage.
   #
-  # We grant the privilege-lifting bits the nested dockerd needs — all caps,
-  # seccomp/AppArmor off, and unmasked /proc + /sys — WITHOUT --privileged.
-  # Those lifts let the *nested* dockerd mount fresh /proc and /sys for the
-  # containers it launches; without them, container starts fail with
-  # `mounting "proc"/"sysfs" ... operation not permitted`. Under ROOTLESS Podman
-  # this does NOT grant root-on-host: everything stays inside the user's
-  # namespace (uid 1000 + the unprivileged subuid block).
+  # --privileged is REQUIRED here and, under ROOTLESS Podman, does NOT grant
+  # root-on-host: the container still runs entirely within the user's namespace
+  # (uid 1000 + the unprivileged subuid block). It lifts the masked-path,
+  # dropped-capability, seccomp and read-only-/sys restrictions so the *nested*
+  # dockerd can mount fresh /proc and /sys for the containers it launches —
+  # without it, container starts fail with `mounting "proc"/"sysfs" ... operation
+  # not permitted` and detached/testcontainers never reach "running". The
+  # à-la-carte equivalents (--cap-add=all + seccomp/apparmor=unconfined +
+  # unmask=all, with or without a writable /sys bind) are NOT enough: the nested
+  # sysfs mount still gets EPERM. This is the standard way docker:dind-rootless runs.
   #
-  # We deliberately do NOT use --privileged: on Podman it also bind-mounts the
-  # host's entire /dev into the sidecar, leaking host hardware (e.g. hot-plugged
-  # /dev/bus/usb/* USB nodes). The nested rootless runc then fails to set up
-  # those group-owned nodes for every container it creates — `error creating
-  # device nodes: mount src=/dev/bus/usb/...` / OCI BadRequest — so testcontainers
-  # and any detached container silently never reach "running" (containers/podman#4900).
-  # The sidecar needs zero host devices; podman still provides the standard
-  # /dev/null,zero,… set in every container regardless.
+  # mask=/dev/bus is the one deviation from stock --privileged. Privileged
+  # bind-mounts the host's entire /dev into the sidecar, leaking host hardware —
+  # notably hot-plugged /dev/bus/usb/* USB nodes. The nested rootless runc then
+  # tries to recreate those group-owned nodes for the containers it launches and
+  # fails — `error creating device nodes: mount src=/dev/bus/usb/...` / OCI
+  # BadRequest (containers/podman#4900). Masking /dev/bus hides them after the
+  # /dev bind (a plain --tmpfs is clobbered by privileged's recursive /dev
+  # re-bind; an explicit mask survives), so /dev/bus/usb is empty and nested
+  # containers start cleanly. The sidecar needs zero host USB devices.
   #
   # --userns=keep-id aligns the daemon's socket owner with the host uid so cage
   # sessions can use it; but it maps only the host's single 65536-id subuid block
@@ -384,11 +388,9 @@ cage_sidecar_start() {
   # (testcontainers etc.). If it won't start we warn and let the caller continue
   # without it, rather than blocking claude-cage from launching entirely.
   if ! podman run -d --name "$CAGE_SIDECAR_NAME" \
-    --cap-add=all \
-    --security-opt seccomp=unconfined \
-    --security-opt apparmor=unconfined \
-    --security-opt unmask=all \
+    --privileged \
     --security-opt label=disable \
+    --security-opt mask=/dev/bus \
     --userns=keep-id \
     --network host \
     --stop-timeout 30 \
