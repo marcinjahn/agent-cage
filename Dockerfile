@@ -146,8 +146,7 @@ ENV FNM_DIR=/opt/fnm \
     NPM_CONFIG_PREFIX=/opt/cage \
     TZ=Europe/Warsaw \
     DISABLE_AUTOUPDATER=1 \
-    COPILOT_AUTO_UPDATE=false \
-    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright/browsers
+    COPILOT_AUTO_UPDATE=false
 
 # ---------------------------------------------------------------------------
 # 5. Per-user toolchains (node + node-based formatters + Claude Code)
@@ -238,47 +237,39 @@ RUN dnf -y install ruby rubygems \
     && dnf clean all
 USER mnj
 
-# Playwright CLI (@playwright/cli) + Chromium/Firefox browsers, for the
-# playwright-cli skill (browser automation). Browser OS libraries come from
-# Fedora's repos: Playwright's own `install-deps` only supports Debian/Ubuntu,
-# so the Chromium+Firefox shared-lib set is listed explicitly (every name was
-# validated against Fedora 43). --skip-unavailable keeps the daily rebuild green
-# if Fedora ever renames one. WebKit is intentionally omitted — its libwpe /
-# wpebackend-fdo aren't packaged for Fedora. dnf needs root, hence the dance.
+# Playwright CLI (@playwright/cli), for the playwright-cli skill (browser
+# automation). The only browser is Google Chrome, installed from Google's RPM
+# repo: playwright-cli launches the branded `chrome` channel by DEFAULT when no
+# --browser is given (hardcoded `channel ?? "chrome"` in its bundled daemon), so
+# without it every default `playwright-cli open` fails with "Chromium
+# distribution 'chrome' is not found at /opt/google/chrome/chrome". The chrome
+# RPM pulls its own OS libraries, so no shared-lib set is listed explicitly;
+# `playwright install chrome` can't do this on Fedora (it only drives apt on
+# Debian/Ubuntu). dnf needs root, hence the dance.
 USER root
-RUN dnf -y install --skip-unavailable \
-        alsa-lib at-spi2-atk at-spi2-core atk cairo cairo-gobject cups-libs \
-        dbus-libs dbus-glib expat glib2 gtk3 gdk-pixbuf2 \
-        libX11 libXcomposite libXdamage libXext libXfixes libXrandr libXtst \
-        libXScrnSaver libXt libdrm libgcc libxcb libxkbcommon libxshmfence \
-        mesa-libgbm mesa-libEGL nspr nss pango \
+RUN printf '%s\n' \
+        '[google-chrome]' \
+        'name=google-chrome' \
+        'baseurl=https://dl.google.com/linux/chrome/rpm/stable/x86_64' \
+        'enabled=1' \
+        'gpgcheck=1' \
+        'gpgkey=https://dl.google.com/linux/linux_signing_key.pub' \
+        > /etc/yum.repos.d/google-chrome.repo \
+    && dnf -y install google-chrome-stable \
     && dnf clean all
 USER mnj
 
 # CLI into a dedicated /opt/playwright prefix (image layer, NOT the /opt/cage
-# volume) so the daily rebuild owns the version. The browser binaries are baked
-# into a fixed PLAYWRIGHT_BROWSERS_PATH (also an image layer — no volume covers
-# ~/.cache) and resolved there at runtime via the same env var. Browser install
-# is driven through the bundled playwright-core (a dep of @playwright/cli), not
-# `playwright-cli install` (which only scaffolds skills). A global install nests
-# playwright-core under @playwright/cli and its package `exports` hide cli.js, so
-# the entrypoint is located by path rather than module resolution.
-#
-# The extraction runs under a throwaway Node 22 (temp FNM_DIR, deleted after) to
-# dodge a yauzl regression that hangs browser-archive extraction at "100%" on
-# Node 24.16.0+ / 26.x (microsoft/playwright#40724). @playwright/cli pins a stale
-# playwright-core alpha that predates the fix (shipped in 1.60.0), and bumping it
-# isn't an option — its chromium revision must match the runtime CLI's. Pinning
-# an unaffected Node for the install sidesteps the bug without touching versions.
-# Runtime browser launches don't extract archives, so the default LTS is fine.
-RUN export FNM_DIR=/tmp/fnm-pw \
-    && eval "$(fnm env --shell bash)" \
-    && fnm install 22 \
-    && fnm use 22 \
-    && npm install -g --prefix /opt/playwright @playwright/cli \
-    && node "$(find /opt/playwright/lib/node_modules -path '*playwright-core/cli.js' | head -n1)" install chromium firefox \
-    && { /opt/playwright/bin/playwright-cli --version > /home/mnj/.cage-playwright-version 2>/dev/null || true; } \
-    && rm -rf /tmp/fnm-pw
+# volume) so the daily rebuild owns the version. PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+# suppresses the bundled-browser download that @playwright/cli's `playwright` dep
+# would otherwise run on install — we use the system Chrome (above), not
+# Playwright's own Chromium/Firefox. Skipping it also sidesteps the yauzl
+# regression that hangs browser-archive extraction on Node 24.16.0+
+# (microsoft/playwright#40724), so the default Node is fine and no throwaway
+# Node 22 is needed.
+RUN eval "$(fnm env --shell bash)" \
+    && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g --prefix /opt/playwright @playwright/cli \
+    && { /opt/playwright/bin/playwright-cli --version > /home/mnj/.cage-playwright-version 2>/dev/null || true; }
 
 # BASH_ENV is set last so it doesn't perturb the build RUNs above; from here on
 # every non-interactive bash (Claude's Bash tool, hooks) sources the cage env.
