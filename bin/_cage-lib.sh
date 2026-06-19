@@ -380,7 +380,10 @@ cage_sidecar_start() {
   # sessions can use it; but it maps only the host's single 65536-id subuid block
   # into the container, so the image's stock rootless:100000:65536 map is out of
   # range and rootlesskit's newuidmap fails. We mount a fitted subid map instead.
-  podman run -d --name "$CAGE_SIDECAR_NAME" \
+  # A failure here is NON-fatal: the sidecar only powers docker-in-cage
+  # (testcontainers etc.). If it won't start we warn and let the caller continue
+  # without it, rather than blocking claude-cage from launching entirely.
+  if ! podman run -d --name "$CAGE_SIDECAR_NAME" \
     --cap-add=all \
     --security-opt seccomp=unconfined \
     --security-opt apparmor=unconfined \
@@ -397,8 +400,10 @@ cage_sidecar_start() {
     -v "$HOME/code:$HOME/code:rw" \
     "$CAGE_SIDECAR_IMAGE" \
     --host="unix://$CAGE_SOCK" "${extra[@]}" \
-    >/dev/null ||
-    cage_die "failed to start docker sidecar"
+    >/dev/null; then
+    cage_err "failed to start docker sidecar"
+    return 1
+  fi
 
   local _
   for _ in $(seq 1 30); do
