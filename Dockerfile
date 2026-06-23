@@ -89,6 +89,15 @@ RUN STYLUA_URL="$(curl -fsSL https://api.github.com/repos/JohnnyMorganz/StyLua/r
     && chmod +x /usr/local/bin/stylua \
     && rm -f /tmp/stylua.zip
 
+# difftastic (difft) — structural diff tool, latest release, musl static build.
+RUN DIFFT_URL="$(curl -fsSL https://api.github.com/repos/Wilfred/difftastic/releases/latest \
+        | jq -r '.assets[] | select(.name | test("x86_64-unknown-linux-musl.tar.gz$")) | .browser_download_url' \
+        | head -n1)" \
+    && curl -fsSL "$DIFFT_URL" -o /tmp/difft.tgz \
+    && tar -xzf /tmp/difft.tgz -C /usr/local/bin difft \
+    && chmod +x /usr/local/bin/difft \
+    && rm -f /tmp/difft.tgz
+
 # fnm (node version manager) binary on PATH; node versions live in a volume (§7).
 RUN curl -fsSL https://fnm.vercel.app/install \
         | bash -s -- --install-dir /usr/local/bin --skip-shell
