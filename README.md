@@ -71,6 +71,24 @@ and rationale.
    claude-cage
    ```
 
+## Background image refresh (optional)
+
+The wrappers already refresh `:latest` lazily on launch (rate-limited by
+`CAGE_PULL_INTERVAL`). If you'd rather keep both images warm in the background even
+between sessions, install the systemd `--user` timer:
+
+```sh
+just install-autopull        # or: bin/cage-autopull install
+```
+
+This pulls both the cage image (`ghcr.io/marcinjahn/agent-cage:latest`) and the dind
+sidecar image (`docker.io/library/docker:dind-rootless`) on an `hourly` schedule. Manage
+it with `bin/cage-autopull status` / `uninstall`; override the schedule or images via
+`CAGE_PULL_SCHEDULE`, `CAGE_IMAGE`, and `CAGE_SIDECAR_IMAGE`.
+
+User timers only run while you have an active session — to pull while logged out, enable
+lingering: `sudo loginctl enable-linger $USER`.
+
 ## How it works (quick map)
 
 - **Image** (`Dockerfile`): Fedora 43 + .NET 10 & 9, node via `fnm`, Python, Ruby, Rust (rustup),

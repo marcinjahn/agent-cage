@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# cage-autopull — install/remove a systemd --user timer that keeps the cage base
+# image fresh in the background.
+#
+#   cage-autopull [install]     install + enable the hourly pull timer
+#   cage-autopull uninstall     disable + remove it
+#   cage-autopull status        show the timer's schedule and last run
+#
+# The wrappers already refresh :latest lazily on launch; this timer is for hosts
+# that want the image kept warm even between sessions.
+set -euo pipefail
+
+IMAGE="${CAGE_IMAGE:-ghcr.io/marcinjahn/agent-cage:latest}"
+SIDECAR_IMAGE="${CAGE_SIDECAR_IMAGE:-docker.io/library/docker:dind-rootless}"
+SCHEDULE="${CAGE_PULL_SCHEDULE:-hourly}"
+UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+NAME="agent-cage-pull"
+
+install() {
+  local podman
+  podman="$(command -v podman)" ||
+    {
+      echo "cage-autopull: podman not found on PATH" >&2
+      exit 1
+    }
+
+  mkdir -p "$UNIT_DIR"
+
+  cat >"$UNIT_DIR/$NAME.service" <<EOF
+[Unit]
+Description=Pull latest agent-cage images ($IMAGE, $SIDECAR_IMAGE)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=-$podman pull $IMAGE
+ExecStart=-$podman pull $SIDECAR_IMAGE
+EOF
+
+  cat >"$UNIT_DIR/$NAME.timer" <<EOF
+[Unit]
+Description=Scheduled pull of the agent-cage image ($SCHEDULE)
+
+[Timer]
+OnCalendar=$SCHEDULE
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  systemctl --user daemon-reload
+  systemctl --user enable --now "$NAME.timer"
+
+  echo "Installed $NAME.timer ($SCHEDULE) -> pulls $IMAGE + $SIDECAR_IMAGE"
+  echo
+  echo "Notes:"
+  echo "  * User timers only run while you have an active session. To pull even"
+  echo "    when logged out:  sudo loginctl enable-linger $USER"
+  echo "  * If the package is private, run once:  podman login ghcr.io"
+  echo "  * Trigger a pull now:  systemctl --user start $NAME.service"
+}
+
+uninstall() {
+  systemctl --user disable --now "$NAME.timer" 2>/dev/null || true
+  rm -f "$UNIT_DIR/$NAME.service" "$UNIT_DIR/$NAME.timer"
+  systemctl --user daemon-reload
+  echo "Removed $NAME.timer and $NAME.service"
+}
+
+case "${1:-install}" in
+install) install ;;
+uninstall) uninstall ;;
+status)
+  systemctl --user list-timers "$NAME.timer"
+  systemctl --user status "$NAME.timer" --no-pager
+  ;;
+*)
+  echo "usage: cage-autopull [install|uninstall|status]" >&2
+  exit 2
+  ;;
+esac
