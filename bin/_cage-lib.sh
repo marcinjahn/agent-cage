@@ -28,6 +28,12 @@ CAGE_FORCE_PULL="${CAGE_FORCE_PULL:-0}"
 # Takes precedence over CAGE_FORCE_PULL.
 CAGE_NO_PULL="${CAGE_NO_PULL:-0}"
 
+# When 1, also bind-mount the current dir into the cage (at the same host path) so
+# a session can run from a dir OUTSIDE the configured work roots below. Set by the
+# wrappers' --mount-cwd flag. Without it, claude-cage refuses to launch from
+# outside the roots (the dir wouldn't be mounted and Claude would see nothing).
+CAGE_MOUNT_CWD="${CAGE_MOUNT_CWD:-0}"
+
 # Optional sidecar storage driver override ("vfs" if fuse-overlayfs is
 # unavailable on the host — DESIGN §8).
 CAGE_SIDECAR_STORAGE="${CAGE_SIDECAR_STORAGE:-}"
@@ -47,6 +53,9 @@ CAGE_SOCK="/sock/docker.sock"
 
 CAGE_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/agent-cage"
 
+# Name the wrapper was invoked as (claude-cage / cage), for use in messages.
+CAGE_INVOKED_AS="${CAGE_INVOKED_AS:-$(basename "$0")}"
+
 # Host dirs that are bind-mounted rw at the same path inside the cage, so the cwd
 # can live under any of them (-w "$PWD" resolves). claude-cage refuses to launch
 # from outside these — otherwise podman would create an empty workdir and Claude
@@ -63,14 +72,30 @@ cage_die() {
   exit 1
 }
 
-# Die unless the cwd is under one of the rw work roots (so -w "$PWD" resolves to a
-# real, mounted dir inside the cage rather than an empty one).
-cage_require_workdir() {
-  local root
+# True (0) when $1 is at or under one of the rw work roots.
+_cage_under_work_root() {
+  local dir="$1" root
   for root in "${CAGE_WORK_ROOTS[@]}"; do
-    case "$PWD/" in "$root/"*) return 0 ;; esac
+    case "$dir/" in "$root/"*) return 0 ;; esac
   done
-  cage_die "run from within one of: ${CAGE_WORK_ROOTS[*]} (cwd: $PWD)"
+  return 1
+}
+
+# Die unless the cwd is under one of the rw work roots (so -w "$PWD" resolves to a
+# real, mounted dir inside the cage rather than an empty one). --mount-cwd
+# (CAGE_MOUNT_CWD=1) waives this by binding the cwd in on the fly (see
+# _cage_add_mounts), so an outside dir is allowed once the user opts in.
+cage_require_workdir() {
+  _cage_under_work_root "$PWD" && return 0
+  [ "$CAGE_MOUNT_CWD" = "1" ] && return 0
+
+  cage_err "refusing to run from $PWD"
+  cage_err "  it's outside the cage's work roots (${CAGE_WORK_ROOTS[*]}), so it"
+  cage_err "  wouldn't be mounted and Claude would see an empty directory."
+  cage_err ""
+  cage_err "  To mount the current directory into the cage anyway, add --mount-cwd:"
+  cage_err "      ${CAGE_INVOKED_AS:-claude-cage} --mount-cwd …"
+  exit 1
 }
 
 # --- image pull (rate-limited) ------------------------------------------------
@@ -230,6 +255,15 @@ _cage_add_mounts() {
   _cage_bind rw "$HOME/code" "$CAGE_HOME/code"
   _cage_bind rw "$HOME/.claude" "$CAGE_HOME/.claude"
   _cage_bind rw "$HOME/.claude.json" "$CAGE_HOME/.claude.json"
+
+  # --mount-cwd: bind the current dir at the same host path so a session can run
+  # from outside the work roots above (-w "$PWD" then resolves to real files).
+  # Skipped when the cwd already lives under a work root (it's mounted already).
+  # The docker sidecar still only sees ~/code, so testcontainers bind-mounting
+  # this dir won't reach it — that's an intentional limit of the ad-hoc mount.
+  if [ "$CAGE_MOUNT_CWD" = "1" ] && ! _cage_under_work_root "$PWD"; then
+    _cage_bind rw "$PWD" "$PWD"
+  fi
 
   # Scratch space the triage-issue skill clones repos into and writes reports to.
   _cage_bind rw "$HOME/triage-issues" "$CAGE_HOME/triage-issues"

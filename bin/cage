@@ -20,20 +20,32 @@ usage:
                              (--update forces a check for a newer image now)
   cage [-n|--no-update]      skip the registry check; run the cached image as-is
                              (useful on a slow connection)
+  cage [--mount-cwd]         also bind-mount the current dir into the cage, so
+                             the shell can run from outside the work roots
   cage docker status|stop|reset
 EOF
 }
 
-# -u/--update forces an image-freshness check this launch, ignoring the pull
-# interval; -n/--no-update skips the check and uses the cached image as-is. Both
-# are only meaningful for `shell`.
-if [ "${1:-}" = "-u" ] || [ "${1:-}" = "--update" ]; then
-  CAGE_FORCE_PULL=1
-  shift
-elif [ "${1:-}" = "-n" ] || [ "${1:-}" = "--no-update" ]; then
-  CAGE_NO_PULL=1
-  shift
-fi
+# Leading flags, only meaningful for `shell`: -u/--update forces an image-freshness
+# check this launch (ignoring the pull interval); -n/--no-update skips the check
+# and uses the cached image as-is; --mount-cwd binds the current dir into the cage.
+while [ $# -gt 0 ]; do
+  case "${1:-}" in
+  -u | --update)
+    CAGE_FORCE_PULL=1
+    shift
+    ;;
+  -n | --no-update)
+    CAGE_NO_PULL=1
+    shift
+    ;;
+  --mount-cwd)
+    CAGE_MOUNT_CWD=1
+    shift
+    ;;
+  *) break ;;
+  esac
+done
 
 cmd="${1:-shell}"
 case "$cmd" in

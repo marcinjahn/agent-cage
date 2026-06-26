@@ -18,15 +18,16 @@ and rationale.
 
 ## What you get
 
-| Command                     | What it does                                                  |
-| --------------------------- | ------------------------------------------------------------- |
-| `claude-cage [args…]`       | like `claude` but inside the cage; forwards args to `claude`  |
-| `claude-cage --mode <mode>` | pick the permission mode (default `auto`; see `--help`)       |
-| `claude-cage --help`        | list modes and usage                                          |
-| `cage`                      | interactive shell in a fresh cage container (inspect/install) |
-| `cage docker status`        | inspect the shared rootless-docker sidecar (testcontainers)   |
-| `cage docker stop`          | stop/remove the sidecar                                       |
-| `cage docker reset`         | recreate the sidecar, pruning all its images/containers/data  |
+| Command                     | What it does                                                        |
+| --------------------------- | ------------------------------------------------------------------- |
+| `claude-cage [args…]`       | like `claude` but inside the cage; forwards args to `claude`        |
+| `claude-cage --mode <mode>` | pick the permission mode (default `auto`; see `--help`)             |
+| `claude-cage --mount-cwd`   | run from a dir outside the work roots; mounts the cwd into the cage |
+| `claude-cage --help`        | list modes and usage                                                |
+| `cage`                      | interactive shell in a fresh cage container (inspect/install)       |
+| `cage docker status`        | inspect the shared rootless-docker sidecar (testcontainers)         |
+| `cage docker stop`          | stop/remove the sidecar                                             |
+| `cage docker reset`         | recreate the sidecar, pruning all its images/containers/data        |
 
 ## Requirements
 
@@ -125,6 +126,11 @@ lingering: `sudo loginctl enable-linger $USER`.
   those from the host. (`DESIGN.md` §7)
 - **Ports:** `--network host` makes host↔cage port-forwarding free, but parallel sessions
   share the host port space. Rootless Podman can't bind ports <1024 — use high ports.
+- **Work roots:** `claude-cage` only launches from inside `~/code` or `~/triage-issues`
+  (the rw-mounted roots), so the cwd resolves to real files in the cage. To work elsewhere,
+  pass `--mount-cwd`, which bind-mounts the current dir into the cage at the same path. The
+  docker sidecar still only sees `~/code`, so testcontainers bind-mounting an ad-hoc cwd
+  won't reach it. (`DESIGN.md` §6/§8)
 - **Adding a language** (Rust/Python/Go/…): add one `RUN` block in the clearly-labelled
   `--- extra toolchains (add here) ---` section of the `Dockerfile`; the daily rebuild
   picks it up.

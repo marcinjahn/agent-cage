@@ -28,6 +28,9 @@ OPTIONS:
                       pull interval (CAGE_PULL_INTERVAL, default: once a day).
   -n, --no-update     Skip the registry check and run the locally cached image
                       as-is. Useful on a slow connection.
+      --mount-cwd     Allow launching from a directory outside the configured
+                      work roots by bind-mounting the current dir into the cage.
+                      Without it, launching from outside the roots is refused.
   -h, --help          Show this help and exit.
 
   Any other argument is forwarded verbatim to `claude`.
@@ -95,6 +98,10 @@ while [ $# -gt 0 ]; do
     ;;
   -n | --no-update)
     CAGE_NO_PULL=1
+    shift
+    ;;
+  --mount-cwd)
+    CAGE_MOUNT_CWD=1
     shift
     ;;
   --)

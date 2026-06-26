@@ -227,7 +227,8 @@ rebuild picks it up. Do not scatter toolchain installs.
 Pseudocode:
 
 ```
-1. Resolve CWD. Require it to be under /home/mnj/code (else: error or warn).
+1. Resolve CWD. Require it under a work root (/home/mnj/code, /home/mnj/triage-issues),
+   else error with guidance — unless --mount-cwd, which binds the cwd in on the fly (§7).
 2. Ensure base image present (lazy pull of :latest, rate-limited).
 3. Ensure docker sidecar is up (see §8) — start if missing/unhealthy, else reuse.
 4. exec podman run --rm -it \
