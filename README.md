@@ -128,9 +128,10 @@ lingering: `sudo loginctl enable-linger $USER`.
   share the host port space. Rootless Podman can't bind ports <1024 — use high ports.
 - **Work roots:** `claude-cage` only launches from inside `~/code` or `~/triage-issues`
   (the rw-mounted roots), so the cwd resolves to real files in the cage. To work elsewhere,
-  pass `--mount-cwd`, which bind-mounts the current dir into the cage at the same path. The
-  docker sidecar still only sees `~/code`, so testcontainers bind-mounting an ad-hoc cwd
-  won't reach it. (`DESIGN.md` §6/§8)
+  pass `--mount-cwd`, which bind-mounts the current dir into the cage **read-write** at the
+  same path. If that dir is otherwise mounted read-only (e.g. `~/.config/nvim`), the
+  read-write cwd mount takes precedence. The docker sidecar still only sees `~/code`, so
+  testcontainers bind-mounting an ad-hoc cwd won't reach it. (`DESIGN.md` §6/§8)
 - **Adding a language** (Rust/Python/Go/…): add one `RUN` block in the clearly-labelled
   `--- extra toolchains (add here) ---` section of the `Dockerfile`; the daily rebuild
   picks it up.

@@ -90,10 +90,10 @@ cage_require_workdir() {
   [ "$CAGE_MOUNT_CWD" = "1" ] && return 0
 
   cage_err "refusing to run from $PWD"
-  cage_err "  it's outside the cage's work roots (${CAGE_WORK_ROOTS[*]}), so it"
-  cage_err "  wouldn't be mounted and Claude would see an empty directory."
+  cage_err "  it's outside the cage's work roots (${CAGE_WORK_ROOTS[*]}), so it isn't"
+  cage_err "  mounted read-write — Claude would see an empty or read-only directory."
   cage_err ""
-  cage_err "  To mount the current directory into the cage anyway, add --mount-cwd:"
+  cage_err "  To mount the current directory into the cage (read-write), add --mount-cwd:"
   cage_err "      ${CAGE_INVOKED_AS:-claude-cage} --mount-cwd …"
   exit 1
 }
@@ -172,13 +172,23 @@ cage_build_run_args() {
   _cage_add_envs
 }
 
-# Append a bind mount, skipping (with a warning) anything missing on the host.
+# Append a bind mount, skipping (with a warning) anything missing on the host or
+# whose destination is already mounted. Dedup matters for --mount-cwd: the cwd is
+# bound first (rw), so a later standard mount of the same dir (e.g. the read-only
+# nvim config) is skipped here instead of making podman fail on a duplicate
+# destination — the explicit rw cwd mount wins. Tracked in _CAGE_SEEN_DESTS, a
+# local of _cage_add_mounts that this dynamically-scoped helper can see.
 _cage_bind() {
   local mode="$1" src="$2" dst="$3"
   if [ ! -e "$src" ]; then
     cage_err "skipping missing mount: $src"
     return 0
   fi
+  if [ -n "${_CAGE_SEEN_DESTS[$dst]:-}" ]; then
+    cage_err "skipping $mode mount of $dst — already mounted (${_CAGE_SEEN_DESTS[$dst]})"
+    return 0
+  fi
+  _CAGE_SEEN_DESTS[$dst]="$mode"
   RUN_ARGS+=(-v "$src:$dst:$mode")
 }
 
@@ -223,6 +233,21 @@ _cage_docker_config() {
 }
 
 _cage_add_mounts() {
+  # Destination dedup for _cage_bind (see there). Local, but bash's dynamic scope
+  # lets _cage_bind read it while we're on the stack.
+  local -A _CAGE_SEEN_DESTS=()
+
+  # --mount-cwd: bind the current dir (rw) at the same host path so a session can
+  # run from outside the work roots (-w "$PWD" then resolves to real files).
+  # Done FIRST so it wins over any standard mount of the same dir below — e.g. in
+  # ~/.config/nvim the read-only config mount is skipped in favor of this rw one,
+  # instead of colliding. Skipped when the cwd is already under a work root (it's
+  # mounted rw there anyway). The docker sidecar still only sees ~/code, so
+  # testcontainers bind-mounting an ad-hoc cwd won't reach it.
+  if [ "$CAGE_MOUNT_CWD" = "1" ] && ! _cage_under_work_root "$PWD"; then
+    _cage_bind rw "$PWD" "$PWD"
+  fi
+
   # Named volumes — persist across sessions and image rebuilds (DESIGN §7).
   RUN_ARGS+=(
     -v "$CAGE_VOL_FNM:/opt/fnm"
@@ -255,15 +280,6 @@ _cage_add_mounts() {
   _cage_bind rw "$HOME/code" "$CAGE_HOME/code"
   _cage_bind rw "$HOME/.claude" "$CAGE_HOME/.claude"
   _cage_bind rw "$HOME/.claude.json" "$CAGE_HOME/.claude.json"
-
-  # --mount-cwd: bind the current dir at the same host path so a session can run
-  # from outside the work roots above (-w "$PWD" then resolves to real files).
-  # Skipped when the cwd already lives under a work root (it's mounted already).
-  # The docker sidecar still only sees ~/code, so testcontainers bind-mounting
-  # this dir won't reach it — that's an intentional limit of the ad-hoc mount.
-  if [ "$CAGE_MOUNT_CWD" = "1" ] && ! _cage_under_work_root "$PWD"; then
-    _cage_bind rw "$PWD" "$PWD"
-  fi
 
   # Scratch space the triage-issue skill clones repos into and writes reports to.
   _cage_bind rw "$HOME/triage-issues" "$CAGE_HOME/triage-issues"
