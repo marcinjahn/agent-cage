@@ -98,6 +98,16 @@ RUN DIFFT_URL="$(curl -fsSL https://api.github.com/repos/Wilfred/difftastic/rele
     && chmod +x /usr/local/bin/difft \
     && rm -f /tmp/difft.tgz
 
+# bun (JavaScript runtime + package manager) — latest release, single static binary.
+RUN BUN_URL="$(curl -fsSL https://api.github.com/repos/oven-sh/bun/releases/latest \
+        | jq -r '.assets[] | select(.name == "bun-linux-x64.zip") | .browser_download_url' \
+        | head -n1)" \
+    && curl -fsSL "$BUN_URL" -o /tmp/bun.zip \
+    && unzip -o /tmp/bun.zip -d /tmp/bun \
+    && mv /tmp/bun/bun-linux-x64/bun /usr/local/bin/bun \
+    && chmod +x /usr/local/bin/bun \
+    && rm -rf /tmp/bun.zip /tmp/bun
+
 # fnm (node version manager) binary on PATH; node versions live in a volume (§7).
 RUN curl -fsSL https://fnm.vercel.app/install \
         | bash -s -- --install-dir /usr/local/bin --skip-shell
