@@ -108,6 +108,25 @@ RUN BUN_URL="$(curl -fsSL https://api.github.com/repos/oven-sh/bun/releases/late
     && chmod +x /usr/local/bin/bun \
     && rm -rf /tmp/bun.zip /tmp/bun
 
+# Terraform (HashiCorp IaC) — latest release. The binaries live on
+# releases.hashicorp.com (not GitHub release assets), so the version is resolved
+# from the GitHub release tag and the matching zip is then fetched.
+RUN TF_VERSION="$(curl -fsSL https://api.github.com/repos/hashicorp/terraform/releases/latest \
+        | jq -r '.tag_name' | sed 's/^v//')" \
+    && curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip" -o /tmp/terraform.zip \
+    && unzip -o /tmp/terraform.zip terraform -d /usr/local/bin \
+    && chmod +x /usr/local/bin/terraform \
+    && rm -f /tmp/terraform.zip
+
+# OpenTofu (tofu) — Terraform-compatible IaC, latest release, single static binary.
+RUN TOFU_URL="$(curl -fsSL https://api.github.com/repos/opentofu/opentofu/releases/latest \
+        | jq -r '.assets[] | select(.name | test("_linux_amd64.zip$")) | .browser_download_url' \
+        | head -n1)" \
+    && curl -fsSL "$TOFU_URL" -o /tmp/tofu.zip \
+    && unzip -o /tmp/tofu.zip tofu -d /usr/local/bin \
+    && chmod +x /usr/local/bin/tofu \
+    && rm -f /tmp/tofu.zip
+
 # fnm (node version manager) binary on PATH; node versions live in a volume (§7).
 RUN curl -fsSL https://fnm.vercel.app/install \
         | bash -s -- --install-dir /usr/local/bin --skip-shell
