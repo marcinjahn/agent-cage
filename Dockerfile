@@ -16,6 +16,10 @@ ARG DOTNET_CHANNEL_9=9.0
 # pipefail so a failed `curl` in a `curl … | bash` pipeline aborts the build.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# Trim every dnf install: nodocs drops man pages/docs, install_weak_deps=False
+# skips recommended-but-unneeded deps. Applies to all dnf layers below.
+RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
+
 # ---------------------------------------------------------------------------
 # 1. System packages
 # ---------------------------------------------------------------------------
@@ -249,16 +253,17 @@ RUN eval "$(fnm env --shell bash)" \
 # is obvious and the daily rebuild picks it up (DESIGN §5 "extensibility").
 # ---------------------------------------------------------------------------
 
-# Rust — rustup with the default profile (tracks latest stable), so rustc, cargo
-# and the rustfmt formatter (DESIGN §9 fallback) come in one shot. The
-# rust-analyzer LSP server (for claude's LSP plugin) is added as a rustup
-# component. CARGO_HOME/RUSTUP_HOME default to ~/.cargo and ~/.rustup, which are
+# Rust — rustup with the minimal profile (tracks latest stable): rustc, cargo
+# and rust-std, without the bulky rust-docs the default profile bundles. The
+# rustfmt formatter (DESIGN §9 fallback), clippy, and the rust-analyzer LSP
+# server (for claude's LSP plugin) are added back as explicit rustup components.
+# CARGO_HOME/RUSTUP_HOME default to ~/.cargo and ~/.rustup, which are
 # image layers (no volume covers them) so the daily rebuild owns the version;
 # ~/.cargo/bin is added to PATH (ENV above + cage-env.sh). --no-modify-path keeps
 # rustup from editing shell profiles, since PATH is managed centrally.
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
-        | sh -s -- -y --profile default --no-modify-path \
-    && /home/mnj/.cargo/bin/rustup component add rust-analyzer \
+        | sh -s -- -y --profile minimal --no-modify-path \
+    && /home/mnj/.cargo/bin/rustup component add rustfmt clippy rust-analyzer \
     && /home/mnj/.cargo/bin/rustc --version > /home/mnj/.cage-rust-version 2>/dev/null || true
 
 # Python — interpreter + pip from Fedora's repo (tracks latest 3.x). dnf needs
