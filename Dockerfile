@@ -319,7 +319,7 @@ RUN eval "$(fnm env --shell bash)" \
 ENV BASH_ENV=/etc/cage/env.sh
 
 LABEL org.opencontainers.image.title="agent-cage" \
-      org.opencontainers.image.description="Sandbox image for running Claude Code with --dangerously-skip-permissions" \
+      org.opencontainers.image.description="Claude Code in a cage, sandboxed with --dangerously-skip-permissions and packed with various dev tools" \
       org.opencontainers.image.source="https://github.com/marcinjahn/agent-cage"
 
 CMD ["claude", "--dangerously-skip-permissions"]

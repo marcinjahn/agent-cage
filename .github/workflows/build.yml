@@ -36,12 +36,18 @@ jobs:
       - name: Derive tags
         id: meta
         uses: docker/metadata-action@v5
+        # GHCR reads the package description from the index/manifest annotation,
+        # not the image-config LABEL — so emit annotations at the index level too.
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index,manifest
         with:
           images: ${{ env.IMAGE }}
           tags: |
             type=raw,value=latest
             type=schedule,pattern={{date 'YYYYMMDD'}}
             type=sha,format=short
+          labels: |
+            org.opencontainers.image.description=Claude Code in a cage, sandboxed with --dangerously-skip-permissions and packed with various dev tools
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -51,5 +57,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
