@@ -151,7 +151,18 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
 # and never sources BASH_ENV, can resolve `claude`. ~/scripts is here for the
 # same reason: claude inherits this PATH and passes it to subprocesses it spawns
 # directly (e.g. tools invoking `limited`), which likewise bypass BASH_ENV.
-ENV PATH=/home/mnj/.local/bin:/home/mnj/.cargo/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/ctx7/bin:/opt/pnpm/bin:/opt/playwright/bin:/opt/cage/bin:/home/mnj/scripts:/usr/local/bin:$PATH
+#
+# /opt/fnm/aliases/default/bin (fnm's stable "default" node symlink) is here for
+# a subtler reason: Claude Code snapshots its own process environment once and
+# re-exports that PATH before every Bash-tool command. That snapshot is taken
+# from the exec-form CMD's env — which never sourced cage-env.sh — so a node that
+# lives only on the per-shell fnm multishell PATH is absent from the snapshot and
+# gets clobbered off every command's PATH ("node: command not found"), even
+# though interactive/`cage` shells (which re-run `fnm env`) have it. Putting the
+# default node on the static PATH makes it survive the snapshot. Project-specific
+# versions (.nvmrc/.node-version) still take precedence in shells that source
+# cage-env.sh, since fnm prepends the multishell dir ahead of this.
+ENV PATH=/home/mnj/.local/bin:/home/mnj/.cargo/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/ctx7/bin:/opt/pnpm/bin:/opt/playwright/bin:/opt/cage/bin:/opt/fnm/aliases/default/bin:/home/mnj/scripts:/usr/local/bin:$PATH
 
 # csharpier as a baked global tool (formatter fallback, DESIGN §9). Lives in a
 # plain image path (not a volume) so the daily rebuild owns its version.
