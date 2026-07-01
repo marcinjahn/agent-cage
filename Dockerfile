@@ -34,6 +34,7 @@ RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng tree \
         fd-find \
         git jq \
+        perl \
         libicu \
         neovim libnotify \
         gcc gcc-c++ make \
