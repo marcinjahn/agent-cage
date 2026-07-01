@@ -30,10 +30,18 @@ command_not_found_handle() {
   return 127
 }
 
-# The guard makes it idempotent so nested bash invocations don't re-run fnm or
-# stack PATH entries.
-[ -n "${__CAGE_ENV_DONE:-}" ] && return 0
-export __CAGE_ENV_DONE=1
+# Idempotency without breaking sandboxed subshells. Key the skip on THIS shell's
+# PATH (the mason bin dir below is prepended unconditionally, so it's a reliable
+# sentinel), not on an exported flag. An exported "done" flag was wrong: Claude
+# Code's Bash tool sources this file in a parent, exports the flag, then runs the
+# command in a child whose PATH has been reset to the image's base ENV PATH. That
+# child re-sourced this file, saw the inherited flag, and returned before re-adding
+# node -> "node: command not found". Keying on PATH content means a shell with a
+# reset PATH rebuilds it, while a nested shell that already inherited the enriched
+# PATH still skips (no re-stacking, no redundant `fnm env`).
+case ":${PATH}:" in
+*":/home/mnj/.local/share/nvim/mason/bin:"*) return 0 ;;
+esac
 
 export DOTNET_ROOT=/opt/dotnet
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
