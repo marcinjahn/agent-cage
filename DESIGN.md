@@ -22,9 +22,9 @@ an open _design_ question:
 
 ## 1. Goal & non-goals
 
-**Goal:** a `claude-cage` command that behaves like normal `claude` but runs inside an
-isolated container, with full permissions, while transparently preserving the host
-integration the user relies on (settings, sessions, hooks, toolchains, credentials,
+**Goal:** `claude-cage` and `agy-cage` commands that behave like normal `claude` and `agy`
+but run inside an isolated container, with full permissions, while transparently preserving
+the host integration the user relies on (settings, sessions, hooks, toolchains, credentials,
 notifications, port access, testcontainers).
 
 **Non-goals:**
@@ -54,12 +54,13 @@ notifications, port access, testcontainers).
   network namespace.
 - Anything reachable through the **docker sidecar**, bounded to `~/code` only (see §8).
 
-**Closed escape path — host-executed `~/.claude` scripts (read-only in cage):**
-`~/.claude` is mounted rw so sessions/history work, BUT `~/.claude/hooks/`,
-`settings.json`, `settings.local.json`, and `statusline-command.sh` are overlaid
-**read-only**. These run **on the host** (when you use host Claude), so if the cage could
-rewrite them, an injected prompt could plant code that later executes _outside_ the cage
-as you. Read-only overlays close that door. (See §7.)
+**Closed escape path — host-executed scripts (read-only in cage):**
+`~/.claude` and `~/.gemini` are mounted rw so sessions/history/conversations work,
+BUT host-executed custom scripts and configurations — `~/.claude/hooks/`,
+`~/.claude/settings*.json`, `~/.claude/statusline-command.sh`, and `~/.gemini/config/` —
+are overlaid **read-only**. These can run **on the host** (when you use host Claude or agy),
+so if the cage could rewrite them, an injected prompt could plant code that later
+executes _outside_ the cage as you. Read-only overlays close that door. (See §7.)
 
 **Accepted risk — secret exfiltration (not mitigated for now):** the cage mounts
 credentials (docker/npm/nuget/acli/gh, and the Claude token in
@@ -269,6 +270,10 @@ Key points:
 - PATH-affecting vars (`FNM_DIR`, dotnet tool path, cage global prefix) — preferably set
   in image profile rather than per-invocation.
 
+### `agy-cage` — primary wrapper for Antigravity CLI
+
+Behaves like `agy` but executes in the same isolated, resource-capped container. Uses `agy` and forwards extra args. Supports permission modes (`--mode bypass` maps to `--dangerously-skip-permissions`, while `--mode default` prompts).
+
 ### `cage` — utility command
 
 - `cage` (no args) → drop into an interactive bash shell in a fresh cage container (same
@@ -291,6 +296,8 @@ Key points:
 | `~/.claude/settings.local.json`   | same (file)         | **ro** | as above                                                  |
 | `~/.claude/statusline-command.sh` | same (file)         | **ro** | host-executed; ro (§2)                                    |
 | `~/.claude.json`                  | same                | **rw** | MCP + project config                                      |
+| `~/.gemini`                       | same                | **rw** | antigravity settings, history, conversations, etc.        |
+| `~/.gemini/config`                | same                | **ro** | host-executed customizations (hooks); ro (§2)             |
 | `~/.gitconfig`                    | same (file)         | ro     | commit author identity                                    |
 | `~/.gitconfig-code`               | same (file)         | ro     | `includeIf` for `~/code/` repos (excludesfile override)   |
 | `~/.gitignore`                    | same (file)         | ro     | global excludesfile (`~/.gitconfig`)                      |

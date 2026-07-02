@@ -24,6 +24,10 @@ and rationale.
 | `claude-cage --mode <mode>` | pick the permission mode (default `auto`; see `--help`)             |
 | `claude-cage --mount-cwd`   | run from a dir outside the work roots; mounts the cwd into the cage |
 | `claude-cage --help`        | list modes and usage                                                |
+| `agy-cage [args…]`          | like `agy` (Antigravity CLI) but inside the cage; forwards args     |
+| `agy-cage --mode <mode>`    | pick the permission mode (`default` or `bypass`; see `--help`)      |
+| `agy-cage --mount-cwd`      | run from a dir outside the work roots; mounts the cwd into the cage |
+| `agy-cage --help`           | list modes and usage                                                |
 | `cage`                      | interactive shell in a fresh cage container (inspect/install)       |
 | `cage docker status`        | inspect the shared rootless-docker sidecar (testcontainers)         |
 | `cage docker stop`          | stop/remove the sidecar                                             |
@@ -94,14 +98,15 @@ lingering: `sudo loginctl enable-linger $USER`.
 
 - **Image** (`Dockerfile`): Fedora 43 + .NET 10 & 9, node via `fnm`, Python, Ruby, Rust (rustup),
   formatters (csharpier/prettier/stylua/eslint/rustfmt),
-  `jj`/`git`/`gh`/`acli`/`just`/`jq`/`yq`/`difft`/`ctx7`/`pnpm`/`bun`/`terraform`/`tofu`, docker CLI,
-  the Playwright CLI (with Google Chrome), Claude Code, and the GitHub Copilot CLI. Built
-  daily and pushed to GHCR.
-- **Wrappers** (`bin/`): `claude-cage` and `cage` share `_cage-lib.sh`, which assembles all
+  `jj`/`git`/`gh`/`acli`/`just`/`yq`/`difft`/`ctx7`/`pnpm`/`bun`/`terraform`/`tofu`, docker CLI,
+  the Playwright CLI (with Google Chrome), Claude Code, Antigravity CLI (agy), and the GitHub
+  Copilot CLI. Built daily and pushed to GHCR.
+- **Wrappers** (`bin/`): `claude-cage`, `agy-cage`, and `cage` share `_cage-lib.sh`, which assembles all
   podman mounts/env/flags, does the rate-limited image pull, and manages the sidecar.
-- **Mounts** (`DESIGN.md` §7): `~/code` and `~/.claude` are read-write; the host-executed
-  `~/.claude` scripts (`hooks/`, `settings*.json`, `statusline-command.sh`) are overlaid
-  **read-only**; credentials, VCS identity, and the nvim config/data are read-only.
+- **Mounts** (`DESIGN.md` §7): `~/code`, `~/.claude`, and `~/.gemini` are read-write; the host-executed
+  `~/.claude` scripts (`hooks/`, `settings*.json`, `statusline-command.sh`) and `~/.gemini/config/`
+  are overlaid **read-only** to prevent poisoning; credentials, VCS identity, and the nvim config/data
+  are read-only.
 - **Sidecar** (`DESIGN.md` §8): one shared rootless-docker container
   (`docker:dind-rootless`), bounded to `~/code`, exposing a socket the cage reaches via
   `DOCKER_HOST`. Started/managed entirely by the wrappers.
@@ -126,7 +131,7 @@ lingering: `sudo loginctl enable-linger $USER`.
   those from the host. (`DESIGN.md` §7)
 - **Ports:** `--network host` makes host↔cage port-forwarding free, but parallel sessions
   share the host port space. Rootless Podman can't bind ports <1024 — use high ports.
-- **Work roots:** `claude-cage` only launches from inside `~/code` or `~/triage-issues`
+- **Work roots:** `claude-cage`/`agy-cage` only launch from inside `~/code` or `~/triage-issues`
   (the rw-mounted roots), so the cwd resolves to real files in the cage. To work elsewhere,
   pass `--mount-cwd`, which bind-mounts the current dir into the cage **read-write** at the
   same path. If that dir is otherwise mounted read-only (e.g. `~/.config/nvim`), the
