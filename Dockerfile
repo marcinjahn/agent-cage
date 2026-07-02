@@ -185,6 +185,11 @@ RUN groupadd -g 1000 mnj \
         /home/mnj/.npm \
         /home/mnj/.nuget/packages \
         /home/mnj/.local/state/nvim \
+        # Pre-create ~/.config owned by mnj: the cage bind-mounts nested paths
+        # (~/.config/jj, nvim, gh, …) but not ~/.config itself, so without this
+        # podman auto-creates the parent as root and mnj-owned tools can't write
+        # there — e.g. Chrome fails to mkdir ~/.config/google-chrome and aborts.
+        /home/mnj/.config \
     && chown -R mnj:mnj /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /opt/pnpm /opt/playwright /home/mnj
 
 # ---------------------------------------------------------------------------
