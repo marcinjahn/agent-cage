@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared configuration and helpers for the agent-cage wrappers (DESIGN §6-§8).
-# Sourced by `claude-cage`, `agy-cage`, and `cage`; not meant to be executed directly.
+# Sourced by `claude-cage` and `cage`; not meant to be executed directly.
 
 # --- configuration (override via environment) --------------------------------
 CAGE_IMAGE="${CAGE_IMAGE:-ghcr.io/marcinjahn/agent-cage:latest}"
@@ -280,8 +280,6 @@ _cage_add_mounts() {
   _cage_bind rw "$HOME/code" "$CAGE_HOME/code"
   _cage_bind rw "$HOME/.claude" "$CAGE_HOME/.claude"
   _cage_bind rw "$HOME/.claude.json" "$CAGE_HOME/.claude.json"
-  _cage_bind rw "$HOME/.gemini" "$CAGE_HOME/.gemini"
-  _cage_bind ro "$HOME/.gemini/config" "$CAGE_HOME/.gemini/config"
 
   # Scratch space the triage-issue skill clones repos into and writes reports to.
   _cage_bind rw "$HOME/triage-issues" "$CAGE_HOME/triage-issues"
@@ -391,9 +389,9 @@ _cage_add_envs() {
   [ -n "${TERM:-}" ] && RUN_ARGS+=(--env TERM)
   [ -n "${COLORTERM:-}" ] && RUN_ARGS+=(--env COLORTERM)
 
-  # Forward any CLAUDE_*, ANTIGRAVITY_*, AGY_*, or GEMINI_* set on the host.
+  # Forward any CLAUDE_* set on the host (CLAUDE_NO_FORMAT, CLAUDE_BYPASS_BUILD_SUMMARY, …).
   local name
-  for name in $(env | grep -oE '^(CLAUDE|ANTIGRAVITY|AGY|GEMINI)_[A-Za-z0-9_]+' || true); do
+  for name in $(env | grep -oE '^CLAUDE_[A-Za-z0-9_]+' || true); do
     RUN_ARGS+=(--env "$name")
   done
 }

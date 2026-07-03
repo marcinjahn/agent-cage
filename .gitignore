@@ -1,3 +1,2 @@
 # Local Claude Code permission grants — machine-specific, not for publishing.
 /.claude/settings.local.json
-.playwright-cli/

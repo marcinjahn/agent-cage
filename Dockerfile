@@ -235,11 +235,6 @@ RUN eval "$(fnm env --shell bash)" \
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && /home/mnj/.local/bin/claude --version > /home/mnj/.cage-claude-version 2>/dev/null || true
 
-# Antigravity CLI — latest, via the native installer. Installed under ~/.local/bin
-# (image layer, not a volume) so the image owns the version.
-RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
-    && /home/mnj/.local/bin/agy --version > /home/mnj/.cage-agy-version 2>/dev/null || true
-
 # GitHub Copilot CLI — latest, into a dedicated /opt/copilot prefix (image layer,
 # NOT the /opt/cage volume) so the daily rebuild owns the version; --prefix
 # overrides NPM_CONFIG_PREFIX for this one install. The first `copilot` run is
