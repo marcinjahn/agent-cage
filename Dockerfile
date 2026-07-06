@@ -162,7 +162,7 @@ RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
 # default node on the static PATH makes it survive the snapshot. Project-specific
 # versions (.nvmrc/.node-version) still take precedence in shells that source
 # cage-env.sh, since fnm prepends the multishell dir ahead of this.
-ENV PATH=/home/mnj/.local/bin:/home/mnj/.cargo/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/ctx7/bin:/opt/pnpm/bin:/opt/playwright/bin:/opt/cage/bin:/opt/fnm/aliases/default/bin:/home/mnj/scripts:/usr/local/bin:$PATH
+ENV PATH=/home/mnj/.local/bin:/home/mnj/.cargo/bin:/opt/dotnet:/opt/dotnet-tools:/opt/copilot/bin:/opt/ctx7/bin:/opt/pnpm/bin:/opt/playwright/bin:/opt/ccusage/bin:/opt/cage/bin:/opt/fnm/aliases/default/bin:/home/mnj/scripts:/usr/local/bin:$PATH
 
 # csharpier as a baked global tool (formatter fallback, DESIGN §9). Lives in a
 # plain image path (not a volume) so the daily rebuild owns its version.
@@ -180,7 +180,7 @@ RUN groupadd -g 1000 mnj \
     && useradd -m -u 1000 -g 1000 -s /bin/bash mnj \
     # Volume mountpoints owned by mnj so podman's copy-up preserves correct
     # ownership and runtime writes (new node versions, npm -g) succeed.
-    && mkdir -p /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /opt/pnpm /opt/playwright \
+    && mkdir -p /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /opt/pnpm /opt/playwright /opt/ccusage \
         /home/mnj/.local/bin \
         /home/mnj/.npm \
         /home/mnj/.nuget/packages \
@@ -190,7 +190,7 @@ RUN groupadd -g 1000 mnj \
         # podman auto-creates the parent as root and mnj-owned tools can't write
         # there — e.g. Chrome fails to mkdir ~/.config/google-chrome and aborts.
         /home/mnj/.config \
-    && chown -R mnj:mnj /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /opt/pnpm /opt/playwright /home/mnj
+    && chown -R mnj:mnj /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /opt/pnpm /opt/playwright /opt/ccusage /home/mnj
 
 # ---------------------------------------------------------------------------
 # 4. Shell environment (PATH, fnm, dotnet) — DESIGN §6/§9.
@@ -262,6 +262,14 @@ RUN eval "$(fnm env --shell bash)" \
 RUN eval "$(fnm env --shell bash)" \
     && npm install -g --prefix /opt/pnpm pnpm \
     && /opt/pnpm/bin/pnpm --version > /home/mnj/.cage-pnpm-version 2>/dev/null || true
+
+# ccusage — Claude Code token usage/cost analyzer CLI. Latest, into a dedicated
+# /opt/ccusage prefix (image layer, NOT the /opt/cage volume) so the daily
+# rebuild owns the version. Reads Claude Code's local session logs (bind-mounted
+# from the host), so no auth to bake.
+RUN eval "$(fnm env --shell bash)" \
+    && npm install -g --prefix /opt/ccusage ccusage \
+    && /opt/ccusage/bin/ccusage --version > /home/mnj/.cage-ccusage-version 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # --- extra toolchains (add here) -------------------------------------------

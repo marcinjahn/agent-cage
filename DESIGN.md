@@ -193,7 +193,9 @@ mason-compiled nvim formatters — run correctly).
    the `playwright-cli` browser-automation skill. The skill's daemon launches the branded
    `chrome` channel by default, so install **Google Chrome** from Google's RPM repo (it pulls
    its own OS libraries); the bundled-browser download is skipped via
-   `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`. Chromium/Firefox/WebKit are not installed.
+   `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`. Chromium/Firefox/WebKit are not installed. Likewise
+   install **`ccusage`** (npm global, into a dedicated `/opt/ccusage` image-layer prefix) to
+   analyze Claude Code token usage/cost from the local session logs; no auth to bake.
 9. **Rootless docker engine** for the sidecar image (may be a _separate_ image — see §8).
 10. Set `TZ=Europe/Warsaw` (CET), `DISABLE_AUTOUPDATER=1`, and `COPILOT_AUTO_UPDATE=false`
     (keep the image-owned Copilot version from drifting in-session) as image env.
