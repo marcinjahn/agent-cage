@@ -27,9 +27,11 @@ RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
 # is for the rootless docker sidecar's storage; the build basics let mason/npm
 # compile anything not already prebuilt in the mounted data dir. libicu is
 # required by the .NET SDK (§2) for globalization — without it dotnet crashes.
-# The network tools (iputils=ping, bind-utils=dig/nslookup/host, iproute=ip/ss,
-# traceroute, mtr, nmap, nmap-ncat=nc, tcpdump, socat, whois, net-tools,
-# bind-utils, wget, telnet, lsof) cover typical connectivity/DNS debugging.
+# e2fsprogs provides lsattr/chattr for inspecting/setting ext-family file
+# attributes. The network tools (iputils=ping, bind-utils=dig/nslookup/host,
+# iproute=ip/ss, traceroute, mtr, nmap, nmap-ncat=nc, tcpdump, socat, whois,
+# net-tools, bind-utils, wget, telnet, lsof) cover typical connectivity/DNS
+# debugging.
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng tree \
         fd-find \
@@ -39,6 +41,7 @@ RUN dnf -y install \
         neovim libnotify \
         gcc gcc-c++ make \
         fuse-overlayfs \
+        e2fsprogs \
         iputils iproute traceroute mtr bind-utils \
         nmap nmap-ncat tcpdump socat whois net-tools wget telnet lsof \
     && dnf clean all
