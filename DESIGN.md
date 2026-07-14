@@ -50,6 +50,10 @@ notifications, port access, testcontainers).
 
 - `~/code` (rw) and agent state in `~/.claude` (rw, _except_ the host-executed scripts —
   see below). The work and the agent state.
+- `/tmp` and `~/tmp` (rw, shared with the host at the identical path) — scratch space,
+  deliberately not isolated so ad-hoc files pass between host and cage. Anything another
+  host process drops there (sockets, scratch files) is readable/writable by the cage, and
+  vice versa.
 - Host network services — `--network host` is used (see §10). The cage shares the host
   network namespace.
 - Anything reachable through the **docker sidecar**, bounded to `~/code` only (see §8).
@@ -286,6 +290,8 @@ Key points:
 
 | Host path                         | Container path      | Mode   | Purpose                                                   |
 | --------------------------------- | ------------------- | ------ | --------------------------------------------------------- |
+| `/tmp`                            | same                | **rw** | shared scratch space between host and cage                |
+| `~/tmp`                           | same                | **rw** | shared personal scratch dir between host and cage         |
 | `~/code`                          | `/home/mnj/code`    | **rw** | the work                                                  |
 | `~/.claude`                       | `/home/mnj/.claude` | **rw** | sessions, history, creds — but with ro overlays below     |
 | `~/.claude/hooks`                 | same                | **ro** | host-executed; ro prevents host-escape poisoning (§2)     |
@@ -464,9 +470,10 @@ the cue to add that tool to the `Dockerfile` and let the daily rebuild bake it i
 fires only on an actual exec attempt, not on `command -v`/`type` probes, so it tracks real
 use rather than availability checks; it still returns 127 so normal "command not found"
 semantics are preserved. Only bare tool names notify (paths and local scripts are skipped),
-and a marker dir in the container-private `/tmp` (fresh each `--rm` launch) dedupes to one
-notification per tool per session. The handler is defined **before** the file's idempotency
-guard so it's present even in nested shells that short-circuit it.
+and a marker dir in the container-private `/run/user/1000` tmpfs (fresh each `--rm` launch)
+dedupes to one notification per tool per session — not `/tmp`, which is bind-mounted from the
+host (§7) and so persists across sessions. The handler is defined **before** the file's
+idempotency guard so it's present even in nested shells that short-circuit it.
 
 ---
 

@@ -276,6 +276,16 @@ _cage_add_mounts() {
   _cage_bind rw "$HOME/.local/share/pnpm/store" "$CAGE_HOME/.local/share/pnpm/store"
   _cage_bind rw "$HOME/.cache/pnpm" "$CAGE_HOME/.cache/pnpm"
 
+  # Share /tmp with the host (rw, identical path) so ad-hoc files (e.g. this
+  # tool's own scratchpad) are reachable from both sides. The missing-tool
+  # notifier's dedup marker lives in the /run/user/1000 tmpfs instead of /tmp
+  # (see etc/cage-env.sh) precisely because /tmp is no longer container-private.
+  _cage_bind rw "/tmp" "/tmp"
+  # Same for the user's personal scratch dir. mkdir so a fresh host still gets it
+  # (mirrors the pnpm store below).
+  mkdir -p "$HOME/tmp" 2>/dev/null || true
+  _cage_bind rw "$HOME/tmp" "$CAGE_HOME/tmp"
+
   # The work + agent state (rw).
   _cage_bind rw "$HOME/code" "$CAGE_HOME/code"
   _cage_bind rw "$HOME/.claude" "$CAGE_HOME/.claude"

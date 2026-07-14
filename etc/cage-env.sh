@@ -11,13 +11,15 @@
 # (not on `command -v`/`type` probes), so this fires on real use, not checks. It
 # returns 127 to preserve normal "command not found" semantics. Defined BEFORE the
 # idempotency guard below so it's present even in nested shells that short-circuit
-# it. Deduped per session via a marker dir in the container-private /tmp (fresh on
-# every --rm launch), so a repeatedly-missing tool notifies once per session.
+# it. Deduped per session via a marker dir in the container-private
+# /run/user/1000 tmpfs (fresh on every --rm launch), so a repeatedly-missing tool
+# notifies once per session. NOT /tmp: that's bind-mounted from the host (shared
+# across sessions) so a marker there would only ever notify once, ever.
 command_not_found_handle() {
   local cmd="$1"
   # Only bare tool names are image candidates — skip paths and local scripts.
   if [[ "$cmd" == [A-Za-z0-9_-]* && "$cmd" != *[!A-Za-z0-9_-]* ]]; then
-    local seen="${TMPDIR:-/tmp}/.cage-missing-tools"
+    local seen="${XDG_RUNTIME_DIR:-/tmp}/.cage-missing-tools"
     mkdir -p "$seen" 2>/dev/null
     if [ ! -e "$seen/$cmd" ]; then
       : >"$seen/$cmd" 2>/dev/null || true
