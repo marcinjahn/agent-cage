@@ -294,6 +294,9 @@ _cage_add_mounts() {
   # Scratch space the triage-issue skill clones repos into and writes reports to.
   _cage_bind rw "$HOME/triage-issues" "$CAGE_HOME/triage-issues"
 
+  # Read-only reference access to ~/esky (not part of the rw work roots).
+  _cage_bind ro "$HOME/esky" "$CAGE_HOME/esky"
+
   # Host-executed scripts within ~/.claude, overlaid read-only so an injected
   # prompt cannot plant code that later runs on the host as you (DESIGN §2/§7).
   _cage_bind ro "$HOME/.claude/hooks" "$CAGE_HOME/.claude/hooks"
