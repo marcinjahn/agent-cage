@@ -1,7 +1,7 @@
 # agent-cage
 
-Run **Claude Code** in a selectable permission mode (default: `auto`) without endangering
-the host. Claude may freely change anything inside `~/code` and `~/.claude`, but cannot
+Run **Claude Code** or **Antigravity CLI (agy)** in a selectable permission mode without endangering
+the host. The agent may freely change anything inside `~/code`, `~/.claude` and `~/.gemini`, but cannot
 reach or damage the host OS, dotfiles, SSH/GPG keys, browser data, or anything else in your
 home directory. For a fully unattended session, `--mode bypass` skips every permission
 check (`--dangerously-skip-permissions`).
@@ -21,9 +21,13 @@ and rationale.
 | Command                     | What it does                                                        |
 | --------------------------- | ------------------------------------------------------------------- |
 | `claude-cage [args…]`       | like `claude` but inside the cage; forwards args to `claude`        |
-| `claude-cage --mode <mode>` | pick the permission mode (default `auto`; see `--help`)             |
+| `claude-cage --mode <mode>` | pick the permission mode for Claude (default `auto`; see `--help`)   |
 | `claude-cage --mount-cwd`   | run from a dir outside the work roots; mounts the cwd into the cage |
-| `claude-cage --help`        | list modes and usage                                                |
+| `claude-cage --help`        | list Claude-cage modes and usage                                    |
+| `agy-cage [args…]`          | like `agy` but inside the cage; forwards args to `agy`              |
+| `agy-cage --mode <mode>`    | pick the permission mode for agy (default `default`; see `--help`)  |
+| `agy-cage --mount-cwd`      | run from a dir outside the work roots; mounts the cwd into the cage |
+| `agy-cage --help`           | list agy-cage modes and usage                                       |
 | `cage`                      | interactive shell in a fresh cage container (inspect/install)       |
 | `cage docker status`        | inspect the shared rootless-docker sidecar (testcontainers)         |
 | `cage docker stop`          | stop/remove the sidecar                                             |
@@ -95,12 +99,12 @@ lingering: `sudo loginctl enable-linger $USER`.
 - **Image** (`Dockerfile`): Fedora 43 + .NET 10 & 9, node via `fnm`, Python, Ruby, Rust (rustup),
   formatters (csharpier/prettier/stylua/eslint/rustfmt),
   `jj`/`git`/`gh`/`acli`/`just`/`jq`/`yq`/`difft`/`ctx7`/`pnpm`/`bun`/`terraform`/`tofu`/`ccusage`, docker CLI,
-  the Playwright CLI (with Google Chrome), Claude Code, and the GitHub Copilot CLI. Built
+  the Playwright CLI (with Google Chrome), Claude Code, Antigravity CLI (agy), and the GitHub Copilot CLI. Built
   daily and pushed to GHCR.
-- **Wrappers** (`bin/`): `claude-cage` and `cage` share `_cage-lib.sh`, which assembles all
+- **Wrappers** (`bin/`): `claude-cage`, `agy-cage`, and `cage` share `_cage-lib.sh`, which assembles all
   podman mounts/env/flags, does the rate-limited image pull, and manages the sidecar.
-- **Mounts** (`DESIGN.md` §7): `~/code` and `~/.claude` are read-write; the host-executed
-  `~/.claude` scripts (`hooks/`, `settings*.json`, `statusline-command.sh`) are overlaid
+- **Mounts** (`DESIGN.md` §7): `~/code`, `~/.claude`, and `~/.gemini` are read-write; the host-executed
+  `~/.claude` and `~/.gemini/config` scripts/skills/settings are overlaid
   **read-only**; credentials, VCS identity, and the nvim config/data are read-only.
 - **Sidecar** (`DESIGN.md` §8): one shared rootless-docker container
   (`docker:dind-rootless`), bounded to `~/code`, exposing a socket the cage reaches via

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared configuration and helpers for the agent-cage wrappers (DESIGN §6-§8).
-# Sourced by `claude-cage` and `cage`; not meant to be executed directly.
+# Sourced by `claude-cage`, `agy-cage`, and `cage`; not meant to be executed directly.
 
 # --- configuration (override via environment) --------------------------------
 CAGE_IMAGE="${CAGE_IMAGE:-ghcr.io/marcinjahn/agent-cage:latest}"
@@ -30,8 +30,8 @@ CAGE_NO_PULL="${CAGE_NO_PULL:-0}"
 
 # When 1, also bind-mount the current dir into the cage (at the same host path) so
 # a session can run from a dir OUTSIDE the configured work roots below. Set by the
-# wrappers' --mount-cwd flag. Without it, claude-cage refuses to launch from
-# outside the roots (the dir wouldn't be mounted and Claude would see nothing).
+# wrappers' --mount-cwd flag. Without it, the wrapper refuses to launch from
+# outside the roots (the dir wouldn't be mounted and the agent would see nothing).
 CAGE_MOUNT_CWD="${CAGE_MOUNT_CWD:-0}"
 
 # Optional sidecar storage driver override ("vfs" if fuse-overlayfs is
@@ -57,8 +57,8 @@ CAGE_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/agent-cage"
 CAGE_INVOKED_AS="${CAGE_INVOKED_AS:-$(basename "$0")}"
 
 # Host dirs that are bind-mounted rw at the same path inside the cage, so the cwd
-# can live under any of them (-w "$PWD" resolves). claude-cage refuses to launch
-# from outside these — otherwise podman would create an empty workdir and Claude
+# can live under any of them (-w "$PWD" resolves). The wrapper refuses to launch
+# from outside these — otherwise podman would create an empty workdir and the agent
 # would see none of your files. Keep in sync with the rw work binds in
 # _cage_add_mounts.
 CAGE_WORK_ROOTS=("$HOME/code" "$HOME/triage-issues")
@@ -91,7 +91,7 @@ cage_require_workdir() {
 
   cage_err "refusing to run from $PWD"
   cage_err "  it's outside the cage's work roots (${CAGE_WORK_ROOTS[*]}), so it isn't"
-  cage_err "  mounted read-write — Claude would see an empty or read-only directory."
+  cage_err "  mounted read-write — the agent would see an empty or read-only directory."
   cage_err ""
   cage_err "  To mount the current directory into the cage (read-write), add --mount-cwd:"
   cage_err "      ${CAGE_INVOKED_AS:-claude-cage} --mount-cwd …"
@@ -157,7 +157,7 @@ cage_lazy_pull() {
 
 # --- run-argument assembly ----------------------------------------------------
 # Populates the global RUN_ARGS array with all flags, mounts and envs shared by
-# `claude-cage` and the `cage` shell.
+# the wrappers and the `cage` shell.
 cage_build_run_args() {
   RUN_ARGS=(
     --rm
@@ -166,7 +166,7 @@ cage_build_run_args() {
     --security-opt label=disable # do NOT relabel ~/code (~75 GB); DESIGN §7
     --memory="$CAGE_MEMORY"
     --cpus="$CAGE_CPUS"
-    -w "$PWD" # start Claude in the same dir -> shared session encoding
+    -w "$PWD" # start in the same dir -> shared session encoding
   )
   _cage_add_mounts
   _cage_add_envs
@@ -291,6 +291,25 @@ _cage_add_mounts() {
   _cage_bind rw "$HOME/.claude" "$CAGE_HOME/.claude"
   _cage_bind rw "$HOME/.claude.json" "$CAGE_HOME/.claude.json"
 
+  # Antigravity CLI (agy) state and configuration (rw).
+  _cage_bind rw "$HOME/.gemini" "$CAGE_HOME/.gemini"
+
+  # Host-executed config, settings, and skills within ~/.gemini, overlaid read-only
+  # so an injected prompt cannot plant code that later runs on the host as you.
+  _cage_bind ro "$HOME/.gemini/config/config.json" "$CAGE_HOME/.gemini/config/config.json"
+  _cage_bind ro "$HOME/.gemini/config/mcp_config.json" "$CAGE_HOME/.gemini/config/mcp_config.json"
+  _cage_bind ro "$HOME/.gemini/config/skills" "$CAGE_HOME/.gemini/config/skills"
+  _cage_bind ro "$HOME/.gemini/settings.json" "$CAGE_HOME/.gemini/settings.json"
+
+  # Credentials / identifiers — mount config files ro to prevent editing/corruption.
+  _cage_bind ro "$HOME/.gemini/google_accounts.json" "$CAGE_HOME/.gemini/google_accounts.json"
+  _cage_bind ro "$HOME/.gemini/oauth_creds.json" "$CAGE_HOME/.gemini/oauth_creds.json"
+  _cage_bind ro "$HOME/.gemini/mcp-oauth-tokens-v2.json" "$CAGE_HOME/.gemini/mcp-oauth-tokens-v2.json"
+  _cage_bind ro "$HOME/.gemini/installation_id" "$CAGE_HOME/.gemini/installation_id"
+  _cage_bind ro "$HOME/.gemini/user_id" "$CAGE_HOME/.gemini/user_id"
+  _cage_bind ro "$HOME/.gemini/google_account_id" "$CAGE_HOME/.gemini/google_account_id"
+  _cage_bind ro "$HOME/.gemini/projects.json" "$CAGE_HOME/.gemini/projects.json"
+
   # Scratch space the triage-issue skill clones repos into and writes reports to.
   _cage_bind rw "$HOME/triage-issues" "$CAGE_HOME/triage-issues"
 
@@ -395,7 +414,7 @@ _cage_add_envs() {
   fi
 
   # Forward the host's terminal identity so colors match. Without these, podman
-  # defaults TERM to "xterm" and leaves COLORTERM unset, so Claude can't detect
+  # defaults TERM to "xterm" and leaves COLORTERM unset, so the agent can't detect
   # truecolor support and downsamples its theme to the 16-color ANSI palette —
   # which the terminal renders with its brighter "bold" variants (the washed-out,
   # "everything brighter" look). Passed by name (value via the wrapper's own env).
@@ -405,6 +424,11 @@ _cage_add_envs() {
   # Forward any CLAUDE_* set on the host (CLAUDE_NO_FORMAT, CLAUDE_BYPASS_BUILD_SUMMARY, …).
   local name
   for name in $(env | grep -oE '^CLAUDE_[A-Za-z0-9_]+' || true); do
+    RUN_ARGS+=(--env "$name")
+  done
+
+  # Forward any AGY_* set on the host (AGY_EFFORT, AGY_MODEL, …).
+  for name in $(env | grep -oE '^AGY_[A-Za-z0-9_]+' || true); do
     RUN_ARGS+=(--env "$name")
   done
 }
@@ -449,7 +473,7 @@ cage_sidecar_start() {
   # range and rootlesskit's newuidmap fails. We mount a fitted subid map instead.
   # A failure here is NON-fatal: the sidecar only powers docker-in-cage
   # (testcontainers etc.). If it won't start we warn and let the caller continue
-  # without it, rather than blocking claude-cage from launching entirely.
+  # without it, rather than blocking the session from launching entirely.
   if ! podman run -d --name "$CAGE_SIDECAR_NAME" \
     --privileged \
     --security-opt label=disable \

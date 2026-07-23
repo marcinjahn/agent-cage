@@ -240,6 +240,12 @@ RUN eval "$(fnm env --shell bash)" \
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && /home/mnj/.local/bin/claude --version > /home/mnj/.cage-claude-version 2>/dev/null || true
 
+# Antigravity CLI (agy) — latest, via the native installer (standalone binary).
+# Installed under ~/.local/bin (image layer, not a volume) so the image owns
+# the version; DISABLE_AUTOUPDATER keeps it from drifting in-session.
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
+    && /home/mnj/.local/bin/agy --version > /home/mnj/.cage-agy-version 2>/dev/null || true
+
 # GitHub Copilot CLI — latest, into a dedicated /opt/copilot prefix (image layer,
 # NOT the /opt/cage volume) so the daily rebuild owns the version; --prefix
 # overrides NPM_CONFIG_PREFIX for this one install. The first `copilot` run is
@@ -349,7 +355,7 @@ RUN eval "$(fnm env --shell bash)" \
 ENV BASH_ENV=/etc/cage/env.sh
 
 LABEL org.opencontainers.image.title="agent-cage" \
-      org.opencontainers.image.description="Claude Code in a cage, sandboxed with --dangerously-skip-permissions and packed with various dev tools" \
+      org.opencontainers.image.description="Claude Code and Antigravity CLI in a cage, sandboxed and packed with various dev tools" \
       org.opencontainers.image.source="https://github.com/marcinjahn/agent-cage"
 
 CMD ["claude", "--dangerously-skip-permissions"]

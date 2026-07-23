@@ -24,7 +24,7 @@ command_not_found_handle() {
     if [ ! -e "$seen/$cmd" ]; then
       : >"$seen/$cmd" 2>/dev/null || true
       notify-send -a agent-cage "agent-cage: missing tool '$cmd'" \
-        "Claude tried to run '$cmd', which isn't in the cage image. Consider adding it to the Dockerfile." \
+        "The agent tried to run '$cmd', which isn't in the cage image. Consider adding it to the Dockerfile." \
         >/dev/null 2>&1 || true
     fi
   fi

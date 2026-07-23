@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# agy-cage — run Antigravity CLI inside the cage (DESIGN §6).
+#
+# Behaves like `agy` but executes in an isolated, resource-capped container
+# with the host integration (settings, sessions, hooks, toolchains, creds,
+# notifications, ports, testcontainers) preserved. Extra args are forwarded.
+#
+# The permission mode is selectable with --mode (default: default). Everything the
+# cage doesn't recognize is forwarded verbatim to `agy`.
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/_cage-lib.sh
+source "$DIR/_cage-lib.sh"
+
+CAGE_MODE_DEFAULT="default"
+
+usage() {
+  cat <<'EOF'
+agy-cage — run Antigravity CLI inside the isolated agent-cage container.
+
+USAGE:
+  agy-cage [--mode <mode>] [agy args…]
+
+OPTIONS:
+  -m, --mode <mode>   Permission mode for the session (default: default).
+  -u, --update        Force a check for a newer image now, ignoring the
+                      pull interval (CAGE_PULL_INTERVAL, default: once a day).
+  -n, --no-update     Skip the registry check and run the locally cached image
+                      as-is. Useful on a slow connection.
+      --mount-cwd     Allow launching from a directory outside the configured
+                      work roots by bind-mounting the current dir into the cage.
+                      Without it, launching from outside the roots is refused.
+  -h, --help          Show this help and exit.
+
+  Any other argument is forwarded verbatim to `agy`.
+
+MODES:
+  default       Standard Antigravity CLI prompting for every permission.
+  accept-edits  Auto-accept file edits; still prompt for other actions.
+  plan          Plan-only; Antigravity proposes but does not execute.
+  bypass        Skip ALL permission checks (agy's --dangerously-skip-permissions).
+                Fully unattended; relies entirely on the cage for safety.
+
+EXAMPLES:
+  agy-cage                          # default mode
+  agy-cage --mode bypass            # skip every permission check
+  agy-cage -m plan "design X"       # plan mode with a prompt
+  agy-cage --mode accept-edits      # accept edits
+
+The session always runs inside the cage; the chosen mode only governs how
+the agent asks for permission within it. See README.md / DESIGN.md.
+EOF
+}
+
+# Translate a friendly mode name into the agy args that select it.
+# Populates the global MODE_ARGS array.
+cage_mode_args() {
+  local mode="$1"
+  case "$mode" in
+  default) MODE_ARGS=() ;;
+  accept-edits | acceptEdits) MODE_ARGS=(--mode accept-edits) ;;
+  plan) MODE_ARGS=(--mode plan) ;;
+  bypass | skip) MODE_ARGS=(--dangerously-skip-permissions) ;;
+  *) cage_die "unknown mode '$mode' (see 'agy-cage --help')" ;;
+  esac
+}
+
+# 1. Parse cage options; collect the rest to forward to agy.
+MODE="$CAGE_MODE_DEFAULT"
+declare -a AGY_ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  -m | --mode)
+    [ $# -ge 2 ] || cage_die "--mode needs a value (see 'agy-cage --help')"
+    MODE="$2"
+    shift 2
+    ;;
+  --mode=*)
+    MODE="${1#--mode=}"
+    shift
+    ;;
+  -u | --update)
+    CAGE_FORCE_PULL=1
+    shift
+    ;;
+  -n | --no-update)
+    CAGE_NO_PULL=1
+    shift
+    ;;
+  --mount-cwd)
+    CAGE_MOUNT_CWD=1
+    shift
+    ;;
+  --)
+    shift
+    AGY_ARGS+=("$@")
+    break
+    ;;
+  *)
+    AGY_ARGS+=("$1")
+    shift
+    ;;
+  esac
+done
+
+declare -a MODE_ARGS
+cage_mode_args "$MODE"
+
+# 2. Require the cwd to be under one of the rw work areas (DESIGN §6).
+cage_require_workdir
+
+# 3. Ensure the image is present (rate-limited pull) and 4. the sidecar is up.
+cage_lazy_pull
+cage_sidecar_ensure || cage_err "continuing without a healthy docker sidecar (testcontainers will fail)"
+
+# 5. Launch.
+declare -a RUN_ARGS
+cage_build_run_args
+exec podman run -it "${RUN_ARGS[@]}" "$CAGE_IMAGE" \
+  agy "${MODE_ARGS[@]}" "${AGY_ARGS[@]}"
