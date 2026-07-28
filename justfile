@@ -11,7 +11,10 @@ default:
 build:
     # --format docker: the Dockerfile uses the SHELL instruction, which the
     # default OCI image format doesn't support (podman would warn and ignore it).
-    podman build --format docker -t {{image}} .
+    # --build-arg CACHEBUST: forces the Dockerfile's "latest" installs (Claude
+    # Code, Antigravity, Copilot, ctx7, pnpm, ccusage) to actually re-run instead
+    # of replaying a stale cached layer (see the Dockerfile comment).
+    podman build --format docker --build-arg CACHEBUST=$(date +%s) -t {{image}} .
 
 # Install/enable the systemd --user timer that keeps the base image fresh.
 install-autopull:

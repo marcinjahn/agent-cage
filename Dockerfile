@@ -234,54 +234,6 @@ RUN eval "$(fnm env --shell bash)" \
 RUN eval "$(fnm env --shell bash)" \
     && npm install -g typescript-language-server typescript
 
-# Claude Code — latest, via the native installer (standalone binary, no node
-# coupling). Installed under ~/.local/bin (image layer, not a volume) so the
-# image owns the version; DISABLE_AUTOUPDATER keeps it from drifting in-session.
-RUN curl -fsSL https://claude.ai/install.sh | bash \
-    && /home/mnj/.local/bin/claude --version > /home/mnj/.cage-claude-version 2>/dev/null || true
-
-# Antigravity CLI (agy) — latest, via the native installer (standalone binary).
-# Installed under ~/.local/bin (image layer, not a volume) so the image owns
-# the version; DISABLE_AUTOUPDATER keeps it from drifting in-session.
-RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
-    && /home/mnj/.local/bin/agy --version > /home/mnj/.cage-agy-version 2>/dev/null || true
-
-# GitHub Copilot CLI — latest, into a dedicated /opt/copilot prefix (image layer,
-# NOT the /opt/cage volume) so the daily rebuild owns the version; --prefix
-# overrides NPM_CONFIG_PREFIX for this one install. The first `copilot` run is
-# triggered here so its npm-loader bakes the platform binary into ~/.copilot/pkg
-# (an image layer, since ~/.copilot is not a mount) instead of downloading it on
-# first use. Auth is NOT baked: the wrapper forwards the host GitHub token as
-# GH_TOKEN at runtime (DESIGN §7).
-RUN eval "$(fnm env --shell bash)" \
-    && npm install -g --prefix /opt/copilot @github/copilot \
-    && /opt/copilot/bin/copilot --version > /home/mnj/.cage-copilot-version 2>/dev/null || true
-
-# Context7 CLI (ctx7) — up-to-date library docs for the agents. Latest, into a
-# dedicated /opt/ctx7 prefix (image layer, NOT the /opt/cage volume) so the daily
-# rebuild owns the version. Auth is NOT baked: the wrapper bind-mounts the host
-# ~/.context7/credentials.json read-only at runtime (DESIGN §7).
-RUN eval "$(fnm env --shell bash)" \
-    && npm install -g --prefix /opt/ctx7 ctx7 \
-    && /opt/ctx7/bin/ctx7 --version > /home/mnj/.cage-ctx7-version 2>/dev/null || true
-
-# pnpm package manager — latest, into a dedicated /opt/pnpm prefix (image layer,
-# NOT the /opt/cage volume) so the daily rebuild owns the version. No auth to
-# bake; the content-addressable store is bind-mounted from the host at runtime
-# (shared with the host store, on the same fs as ~/code so hardlinks work — see
-# _cage-lib.sh / DESIGN §7).
-RUN eval "$(fnm env --shell bash)" \
-    && npm install -g --prefix /opt/pnpm pnpm \
-    && /opt/pnpm/bin/pnpm --version > /home/mnj/.cage-pnpm-version 2>/dev/null || true
-
-# ccusage — Claude Code token usage/cost analyzer CLI. Latest, into a dedicated
-# /opt/ccusage prefix (image layer, NOT the /opt/cage volume) so the daily
-# rebuild owns the version. Reads Claude Code's local session logs (bind-mounted
-# from the host), so no auth to bake.
-RUN eval "$(fnm env --shell bash)" \
-    && npm install -g --prefix /opt/ccusage ccusage \
-    && /opt/ccusage/bin/ccusage --version > /home/mnj/.cage-ccusage-version 2>/dev/null || true
-
 # ---------------------------------------------------------------------------
 # --- extra toolchains (add here) -------------------------------------------
 # To add a language (Rust, Python, Go, …), append ONE self-contained RUN per
@@ -349,6 +301,68 @@ USER mnj
 RUN eval "$(fnm env --shell bash)" \
     && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g --prefix /opt/playwright @playwright/cli \
     && { /opt/playwright/bin/playwright-cli --version > /home/mnj/.cage-playwright-version 2>/dev/null || true; }
+
+# ---------------------------------------------------------------------------
+# --- version-pinned-to-nothing installs (keep these LAST) ------------------
+# CACHEBUST: the installs below (Claude Code, Antigravity, Copilot, ctx7, pnpm,
+# ccusage) are RUN/curl/npm commands whose instruction text never changes, so
+# Docker's layer cache replays them unchanged instead of re-fetching whatever's
+# actually latest — silently freezing their versions across rebuilds, local or
+# CI's daily one, until something above them in the Dockerfile changes.
+# Consuming this ARG in the first such RUN forces it, and every RUN after it in
+# this stage, to actually re-execute. CI passes the run id; `just build` passes
+# the current timestamp. Kept as the last thing before BASH_ENV so busting it
+# doesn't cascade into rebuilding the heavier toolchains above (Rust, Chrome, …).
+# ---------------------------------------------------------------------------
+ARG CACHEBUST=1
+
+# Claude Code — latest, via the native installer (standalone binary, no node
+# coupling). Installed under ~/.local/bin (image layer, not a volume) so the
+# image owns the version; DISABLE_AUTOUPDATER keeps it from drifting in-session.
+RUN : "${CACHEBUST}" && curl -fsSL https://claude.ai/install.sh | bash \
+    && /home/mnj/.local/bin/claude --version > /home/mnj/.cage-claude-version 2>/dev/null || true
+
+# Antigravity CLI (agy) — latest, via the native installer (standalone binary).
+# Installed under ~/.local/bin (image layer, not a volume) so the image owns
+# the version; DISABLE_AUTOUPDATER keeps it from drifting in-session.
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
+    && /home/mnj/.local/bin/agy --version > /home/mnj/.cage-agy-version 2>/dev/null || true
+
+# GitHub Copilot CLI — latest, into a dedicated /opt/copilot prefix (image layer,
+# NOT the /opt/cage volume) so the daily rebuild owns the version; --prefix
+# overrides NPM_CONFIG_PREFIX for this one install. The first `copilot` run is
+# triggered here so its npm-loader bakes the platform binary into ~/.copilot/pkg
+# (an image layer, since ~/.copilot is not a mount) instead of downloading it on
+# first use. Auth is NOT baked: the wrapper forwards the host GitHub token as
+# GH_TOKEN at runtime (DESIGN §7).
+RUN eval "$(fnm env --shell bash)" \
+    && npm install -g --prefix /opt/copilot @github/copilot \
+    && /opt/copilot/bin/copilot --version > /home/mnj/.cage-copilot-version 2>/dev/null || true
+
+# Context7 CLI (ctx7) — up-to-date library docs for the agents. Latest, into a
+# dedicated /opt/ctx7 prefix (image layer, NOT the /opt/cage volume) so the daily
+# rebuild owns the version. Auth is NOT baked: the wrapper bind-mounts the host
+# ~/.context7/credentials.json read-only at runtime (DESIGN §7).
+RUN eval "$(fnm env --shell bash)" \
+    && npm install -g --prefix /opt/ctx7 ctx7 \
+    && /opt/ctx7/bin/ctx7 --version > /home/mnj/.cage-ctx7-version 2>/dev/null || true
+
+# pnpm package manager — latest, into a dedicated /opt/pnpm prefix (image layer,
+# NOT the /opt/cage volume) so the daily rebuild owns the version. No auth to
+# bake; the content-addressable store is bind-mounted from the host at runtime
+# (shared with the host store, on the same fs as ~/code so hardlinks work — see
+# _cage-lib.sh / DESIGN §7).
+RUN eval "$(fnm env --shell bash)" \
+    && npm install -g --prefix /opt/pnpm pnpm \
+    && /opt/pnpm/bin/pnpm --version > /home/mnj/.cage-pnpm-version 2>/dev/null || true
+
+# ccusage — Claude Code token usage/cost analyzer CLI. Latest, into a dedicated
+# /opt/ccusage prefix (image layer, NOT the /opt/cage volume) so the daily
+# rebuild owns the version. Reads Claude Code's local session logs (bind-mounted
+# from the host), so no auth to bake.
+RUN eval "$(fnm env --shell bash)" \
+    && npm install -g --prefix /opt/ccusage ccusage \
+    && /opt/ccusage/bin/ccusage --version > /home/mnj/.cage-ccusage-version 2>/dev/null || true
 
 # BASH_ENV is set last so it doesn't perturb the build RUNs above; from here on
 # every non-interactive bash (Claude's Bash tool, hooks) sources the cage env.
