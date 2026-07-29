@@ -33,6 +33,7 @@ RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
 # network tools (iputils=ping, bind-utils=dig/nslookup/host, iproute=ip/ss,
 # traceroute, mtr, nmap, nmap-ncat=nc, tcpdump, socat, whois, net-tools,
 # bind-utils, wget, telnet, lsof) cover typical connectivity/DNS debugging.
+# vim-common provides xxd for hex dump/patch workflows.
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng tree \
         fd-find \
@@ -44,6 +45,7 @@ RUN dnf -y install \
         fuse-overlayfs \
         e2fsprogs \
         diffutils patch \
+        vim-common \
         iputils iproute traceroute mtr bind-utils \
         nmap nmap-ncat tcpdump socat whois net-tools wget telnet lsof \
     && dnf clean all
