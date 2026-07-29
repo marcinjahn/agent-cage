@@ -92,6 +92,14 @@ RUN YQ_URL="$(curl -fsSL https://api.github.com/repos/mikefarah/yq/releases/late
     && curl -fsSL "$YQ_URL" -o /usr/local/bin/yq \
     && chmod +x /usr/local/bin/yq
 
+# sops (Mozilla/getsops) — encrypted secrets editor, latest release, single
+# static binary.
+RUN SOPS_URL="$(curl -fsSL https://api.github.com/repos/getsops/sops/releases/latest \
+        | jq -r '.assets[] | select(.name | test("linux\\.amd64$")) | .browser_download_url' \
+        | head -n1)" \
+    && curl -fsSL "$SOPS_URL" -o /usr/local/bin/sops \
+    && chmod +x /usr/local/bin/sops
+
 # stylua — latest release standalone binary (formatter fallback, DESIGN §9).
 RUN STYLUA_URL="$(curl -fsSL https://api.github.com/repos/JohnnyMorganz/StyLua/releases/latest \
         | jq -r '.assets[] | select(.name | test("linux-x86_64.zip$")) | .browser_download_url' \
