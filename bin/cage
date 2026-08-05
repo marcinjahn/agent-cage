@@ -22,13 +22,17 @@ usage:
                              (useful on a slow connection)
   cage [--mount-cwd]         also bind-mount the current dir into the cage, so
                              the shell can run from outside the work roots
+  cage [--kube]              mint short-lived, read-only kubectl tokens for the
+                             clusters in ~/.config/agent-cage/kube-contexts and
+                             mount them into the shell
   cage docker status|stop|reset
 EOF
 }
 
 # Leading flags, only meaningful for `shell`: -u/--update forces an image-freshness
 # check this launch (ignoring the pull interval); -n/--no-update skips the check
-# and uses the cached image as-is; --mount-cwd binds the current dir into the cage.
+# and uses the cached image as-is; --mount-cwd binds the current dir into the cage;
+# --kube mints and mounts read-only kubectl tokens.
 while [ $# -gt 0 ]; do
   case "${1:-}" in
   -u | --update)
@@ -41,6 +45,10 @@ while [ $# -gt 0 ]; do
     ;;
   --mount-cwd)
     CAGE_MOUNT_CWD=1
+    shift
+    ;;
+  --kube)
+    CAGE_KUBE_ENABLED=1
     shift
     ;;
   *) break ;;

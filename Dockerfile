@@ -62,6 +62,16 @@ RUN curl -fsSL https://download.docker.com/linux/fedora/docker-ce.repo \
     && dnf -y install docker-ce-cli \
     && dnf clean all
 
+# kubectl — latest stable release, single static binary. Client only: the cage
+# never gets the host's real (read-write) kubeconfig, only a generated,
+# read-only one the wrapper assembles at launch from short-lived tokens (see
+# _cage_kube_config in bin/_cage-lib.sh and DESIGN.md §7a) — so no
+# cloud-specific exec auth plugin (gke-gcloud-auth-plugin etc.) is needed here.
+RUN KUBECTL_VERSION="$(curl -fsSL https://dl.k8s.io/release/stable.txt)" \
+    && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+        -o /usr/local/bin/kubectl \
+    && chmod +x /usr/local/bin/kubectl
+
 # acli (Atlassian CLI) — per Atlassian's Linux instructions (single static binary).
 RUN curl -fsSL "https://acli.atlassian.com/linux/latest/acli_linux_amd64/acli" \
         -o /usr/local/bin/acli \
@@ -205,6 +215,9 @@ RUN groupadd -g 1000 mnj \
         # podman auto-creates the parent as root and mnj-owned tools can't write
         # there — e.g. Chrome fails to mkdir ~/.config/google-chrome and aborts.
         /home/mnj/.config \
+        # Same reasoning for ~/.kube: the generated read-only kubeconfig is
+        # bind-mounted as a nested file (~/.kube/config), not the dir itself.
+        /home/mnj/.kube \
     && chown -R mnj:mnj /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /opt/pnpm /opt/playwright /opt/ccusage /home/mnj
 
 # ---------------------------------------------------------------------------

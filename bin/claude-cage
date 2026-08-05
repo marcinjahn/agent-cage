@@ -31,6 +31,10 @@ OPTIONS:
       --mount-cwd     Allow launching from a directory outside the configured
                       work roots by bind-mounting the current dir into the cage.
                       Without it, launching from outside the roots is refused.
+      --kube          Mint short-lived, read-only kubectl tokens for the
+                      clusters listed in ~/.config/agent-cage/kube-contexts and
+                      mount them into the cage. Without it, kubectl isn't
+                      configured inside the cage at all.
   -h, --help          Show this help and exit.
 
   Any other argument is forwarded verbatim to `claude`.
@@ -102,6 +106,10 @@ while [ $# -gt 0 ]; do
     ;;
   --mount-cwd)
     CAGE_MOUNT_CWD=1
+    shift
+    ;;
+  --kube)
+    CAGE_KUBE_ENABLED=1
     shift
     ;;
   --)

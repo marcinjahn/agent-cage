@@ -18,20 +18,23 @@ and rationale.
 
 ## What you get
 
-| Command                     | What it does                                                        |
-| --------------------------- | ------------------------------------------------------------------- |
-| `claude-cage [args…]`       | like `claude` but inside the cage; forwards args to `claude`        |
-| `claude-cage --mode <mode>` | pick the permission mode for Claude (default `auto`; see `--help`)   |
-| `claude-cage --mount-cwd`   | run from a dir outside the work roots; mounts the cwd into the cage |
-| `claude-cage --help`        | list Claude-cage modes and usage                                    |
-| `agy-cage [args…]`          | like `agy` but inside the cage; forwards args to `agy`              |
-| `agy-cage --mode <mode>`    | pick the permission mode for agy (default `default`; see `--help`)  |
-| `agy-cage --mount-cwd`      | run from a dir outside the work roots; mounts the cwd into the cage |
-| `agy-cage --help`           | list agy-cage modes and usage                                       |
-| `cage`                      | interactive shell in a fresh cage container (inspect/install)       |
-| `cage docker status`        | inspect the shared rootless-docker sidecar (testcontainers)         |
-| `cage docker stop`          | stop/remove the sidecar                                             |
-| `cage docker reset`         | recreate the sidecar, pruning all its images/containers/data        |
+| Command                     | What it does                                                          |
+| --------------------------- | --------------------------------------------------------------------- |
+| `claude-cage [args…]`       | like `claude` but inside the cage; forwards args to `claude`          |
+| `claude-cage --mode <mode>` | pick the permission mode for Claude (default `auto`; see `--help`)    |
+| `claude-cage --mount-cwd`   | run from a dir outside the work roots; mounts the cwd into the cage   |
+| `claude-cage --kube`        | mint + mount read-only kubectl access (see "Kubernetes access" below) |
+| `claude-cage --help`        | list Claude-cage modes and usage                                      |
+| `agy-cage [args…]`          | like `agy` but inside the cage; forwards args to `agy`                |
+| `agy-cage --mode <mode>`    | pick the permission mode for agy (default `default`; see `--help`)    |
+| `agy-cage --mount-cwd`      | run from a dir outside the work roots; mounts the cwd into the cage   |
+| `agy-cage --kube`           | mint + mount read-only kubectl access (see "Kubernetes access" below) |
+| `agy-cage --help`           | list agy-cage modes and usage                                         |
+| `cage`                      | interactive shell in a fresh cage container (inspect/install)         |
+| `cage --kube`               | same, for the interactive shell                                       |
+| `cage docker status`        | inspect the shared rootless-docker sidecar (testcontainers)           |
+| `cage docker stop`          | stop/remove the sidecar                                               |
+| `cage docker reset`         | recreate the sidecar, pruning all its images/containers/data          |
 
 ## Requirements
 
@@ -99,8 +102,8 @@ lingering: `sudo loginctl enable-linger $USER`.
 - **Image** (`Dockerfile`): Fedora 43 + .NET 10 & 9, node via `fnm`, Python, Ruby, Rust (rustup),
   formatters (csharpier/prettier/stylua/eslint/rustfmt),
   `jj`/`git`/`gh`/`acli`/`just`/`jq`/`yq`/`difft`/`ctx7`/`pnpm`/`bun`/`terraform`/`tofu`/`ccusage`, docker CLI,
-  the Playwright CLI (with Google Chrome), Claude Code, Antigravity CLI (agy), and the GitHub Copilot CLI. Built
-  daily and pushed to GHCR.
+  `kubectl` (read-only access only — see below), the Playwright CLI (with Google Chrome), Claude Code,
+  Antigravity CLI (agy), and the GitHub Copilot CLI. Built daily and pushed to GHCR.
 - **Wrappers** (`bin/`): `claude-cage`, `agy-cage`, and `cage` share `_cage-lib.sh`, which assembles all
   podman mounts/env/flags, does the rate-limited image pull, and manages the sidecar.
 - **Mounts** (`DESIGN.md` §7): `~/code`, `~/.claude`, and `~/.gemini` are read-write; the host-executed
@@ -109,6 +112,31 @@ lingering: `sudo loginctl enable-linger $USER`.
 - **Sidecar** (`DESIGN.md` §8): one shared rootless-docker container
   (`docker:dind-rootless`), bounded to `~/code`, exposing a socket the cage reaches via
   `DOCKER_HOST`. Started/managed entirely by the wrappers.
+
+## Kubernetes access (optional, read-only, opt-in)
+
+`kubectl` is in the image, but the cage is never given your real (read-write) kubeconfig —
+RBAC is enforced server-side, so mounting it read-only would only stop the _file_ from
+being edited, not what `kubectl` could do against the API. Instead:
+
+1. **One-time, cluster-side**, for each cluster you want reachable: create a dedicated
+   ServiceAccount and bind it to the built-in read-only `view` ClusterRole, e.g.
+
+   ```sh
+   kubectl --context <ctx> create namespace agent-cage
+   kubectl --context <ctx> create serviceaccount cage-viewer -n agent-cage
+   kubectl --context <ctx> create clusterrolebinding cage-viewer-view \
+     --clusterrole=view --serviceaccount=agent-cage:cage-viewer
+   ```
+
+2. **List the context** in `~/.config/agent-cage/kube-contexts` (outside this repo — host-
+   specific, not checked in), one context name per line. See the comments in that file for
+   the format (namespace/serviceaccount default to `agent-cage`/`cage-viewer`).
+
+3. **Pass `--kube`** on any wrapper (`claude-cage --kube`, `agy-cage --kube`, `cage --kube`).
+   Only then does the wrapper mint a short-lived (`CAGE_KUBE_TOKEN_TTL`, default `1h`) token
+   per listed context and mount a generated, token-based kubeconfig into the cage. Without
+   `--kube`, no token is minted and `kubectl` inside the cage has no config at all.
 
 ## Configuration (env vars)
 
@@ -119,6 +147,7 @@ lingering: `sudo loginctl enable-linger $USER`.
 | `CAGE_CPUS`            | `2`                                    | per-session CPU cap                                                              |
 | `CAGE_PULL_INTERVAL`   | `86400`                                | min seconds between `:latest` checks (`0` = every launch; `--update` forces one) |
 | `CAGE_NO_PULL`         | `0`                                    | `1` skips the registry check and runs the cached image as-is (`--no-update`)     |
+| `CAGE_KUBE_TOKEN_TTL`  | `1h`                                   | validity of the minted read-only kubectl tokens (`--kube`)                       |
 | `CAGE_SIDECAR_STORAGE` | _(unset)_                              | set to `vfs` if fuse-overlayfs is absent                                         |
 
 ## Notes & limitations

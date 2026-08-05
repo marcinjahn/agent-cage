@@ -52,6 +52,16 @@ CAGE_HOME="/home/mnj"
 CAGE_SOCK="/sock/docker.sock"
 
 CAGE_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/agent-cage"
+CAGE_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agent-cage"
+
+# Read-only kubectl access is opt-in and host-specific (which clusters, if
+# any), so its config lives outside this repo, in the XDG config dir rather
+# than checked in — see _cage_kube_config below and DESIGN.md. Off by default
+# (set by the wrappers' --kube flag) so a token isn't minted on every launch,
+# only sessions that actually asked for cluster access.
+CAGE_KUBE_ENABLED="${CAGE_KUBE_ENABLED:-0}"
+CAGE_KUBE_CONTEXTS_FILE="${CAGE_KUBE_CONTEXTS_FILE:-$CAGE_CONFIG_DIR/kube-contexts}"
+CAGE_KUBE_TOKEN_TTL="${CAGE_KUBE_TOKEN_TTL:-1h}"
 
 # Name the wrapper was invoked as (claude-cage / cage), for use in messages.
 CAGE_INVOKED_AS="${CAGE_INVOKED_AS:-$(basename "$0")}"
@@ -232,6 +242,75 @@ _cage_docker_config() {
   fi
 }
 
+# Produce a throwaway, READ-ONLY kubeconfig to mount, echoing its host path.
+#
+# kubectl's own permissions are enforced server-side (RBAC), not by the
+# client — so mounting the host's real kubeconfig read-only would only stop
+# the *file* from being edited, not what it can do against the API. Instead,
+# mirroring _cage_docker_config above: for each context listed in
+# CAGE_KUBE_CONTEXTS_FILE (host-specific, outside this repo — see there), mint
+# a short-lived token for a ServiceAccount already bound cluster-side to the
+# built-in read-only `view` ClusterRole, and build a kubeconfig entry by entry
+# with `kubectl config set-*` — never copying the host context wholesale. Only
+# two non-secret fields are pulled from it (the API server URL and its CA
+# cert); the auth block is always the freshly minted token, so nothing of the
+# host's own auth method (cert, gke-gcloud-auth-plugin, …) ever reaches the
+# generated file or the cage. Tokens expire after CAGE_KUBE_TOKEN_TTL;
+# re-minted on every launch. Returns empty (no mount) if the config
+# file/kubectl/any context is unavailable — kubectl access inside the cage is
+# opt-in, not required.
+_cage_kube_config() {
+  [ "$CAGE_KUBE_ENABLED" = "1" ] || return 0
+
+  local contexts_file="$CAGE_KUBE_CONTEXTS_FILE" gen="$CAGE_STATE_DIR/kubeconfig"
+  [ -f "$contexts_file" ] || return 0
+  command -v kubectl >/dev/null 2>&1 || return 0
+
+  mkdir -p "$CAGE_STATE_DIR"
+  rm -f "$gen"
+
+  local ctx ns sa token server ca_data ca_file first=""
+  while IFS=' ' read -r ctx ns sa _; do
+    [ -z "$ctx" ] && continue
+    case "$ctx" in '#'*) continue ;; esac
+    ns="${ns:-agent-cage}"
+    sa="${sa:-cage-viewer}"
+
+    token="$(kubectl --context "$ctx" create token "$sa" -n "$ns" --duration "$CAGE_KUBE_TOKEN_TTL" 2>/dev/null)"
+    if [ -z "$token" ]; then
+      cage_err "kube: couldn't mint a token for $ctx (serviceaccount $ns/$sa) — skipping"
+      continue
+    fi
+
+    server="$(kubectl --context "$ctx" config view --minify --flatten \
+      -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null)"
+    if [ -z "$server" ]; then
+      cage_err "kube: couldn't resolve the API server for $ctx — skipping"
+      continue
+    fi
+    ca_data="$(kubectl --context "$ctx" config view --minify --flatten \
+      -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' 2>/dev/null)"
+
+    KUBECONFIG="$gen" kubectl config set-cluster "$ctx" --server="$server" >/dev/null
+    if [ -n "$ca_data" ]; then
+      ca_file="$(mktemp "$CAGE_STATE_DIR/kubeconfig-ca.XXXXXX")"
+      printf '%s' "$ca_data" | base64 -d >"$ca_file" 2>/dev/null
+      KUBECONFIG="$gen" kubectl config set-cluster "$ctx" \
+        --certificate-authority="$ca_file" --embed-certs=true >/dev/null
+      rm -f "$ca_file"
+    fi
+    KUBECONFIG="$gen" kubectl config set-credentials "$ctx" --token="$token" >/dev/null
+    KUBECONFIG="$gen" kubectl config set-context "$ctx" \
+      --cluster="$ctx" --user="$ctx" --namespace="$ns" >/dev/null
+    [ -z "$first" ] && first="$ctx"
+  done <"$contexts_file"
+
+  [ -s "$gen" ] || return 0
+  KUBECONFIG="$gen" kubectl config use-context "$first" >/dev/null 2>&1
+  chmod 600 "$gen"
+  printf '%s' "$gen"
+}
+
 _cage_add_mounts() {
   # Destination dedup for _cage_bind (see there). Local, but bash's dynamic scope
   # lets _cage_bind read it while we're on the stack.
@@ -362,6 +441,12 @@ _cage_add_mounts() {
   # Context7 CLI (ctx7) OAuth tokens. Just the credentials file (ro), so the dir
   # is the tool's own writable container path for anything else it caches.
   _cage_bind ro "$HOME/.context7/credentials.json" "$CAGE_HOME/.context7/credentials.json"
+
+  # Read-only kubectl access (opt-in, see _cage_kube_config) — a generated
+  # kubeconfig of short-lived, view-only tokens, never the real one.
+  local kube_cfg
+  kube_cfg="$(_cage_kube_config)"
+  [ -n "$kube_cfg" ] && _cage_bind ro "$kube_cfg" "$CAGE_HOME/.kube/config"
 
   # A real, writable XDG_RUNTIME_DIR. The cage has no logind to create /run/user/1000,
   # so without this fnm — and anything else that uses the runtime dir — fails (see

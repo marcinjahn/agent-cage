@@ -81,27 +81,28 @@ root-on-host and defeats the cage.
 
 ## 3. Decisions summary
 
-| Area                      | Decision                                                                              | Rationale                                                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Outer runtime             | **Rootless Podman**                                                                   | Runs as uid 1000; breakout is unprivileged. `--dangerously-skip-permissions` refuses to run as root anyway.              |
-| Session model             | **Ephemeral, parallel containers** (`podman run --rm`) from one image                 | User runs multiple cage sessions in parallel; no fragile long-lived container.                                           |
-| Durable toolchain         | **Baked into a base image**, rebuilt **daily by GitHub Actions**                      | Reproducible; auto-tracks latest Claude + tools.                                                                         |
-| Ad-hoc installs / caches  | **Shared named volumes**                                                              | Persist across sessions and image rebuilds.                                                                              |
-| Host protection           | **Strict write-allowlist**                                                            | Only `~/code`, `~/.claude`, and cage volumes are writable.                                                               |
-| Toolchains                | **Fresh install in image** (no host-binary reuse)                                     | User's host setup (brew/asdf) is irrelevant; only the tools matter.                                                      |
-| Node versions             | **`fnm`** + per-project `.nvmrc`, versions in a shared volume                         | Multiple node versions, auto-selected.                                                                                   |
-| nvim / formatting         | **Mount the user's real `~/.config/nvim` + `~/.local/share/nvim` read-only**          | Formatting hook must behave exactly as on host. Cannot be baked (host-specific, GitHub can't see it).                    |
-| Networking                | **`--network host`** for all sessions                                                 | Bidirectional port-forwarding "just works".                                                                              |
-| Docker for testcontainers | **Single rootless-docker sidecar**, wrapper-managed, bounded to `~/code`              | testcontainers needs real Docker; sidecar is reliable (vs. fragile nested DinD) and keeps the escape surface = `~/code`. |
-| Resource limits           | **`podman run --memory=4g --cpus=2`** per session (default, overridable)              | Favors many parallel sessions; `limited` becomes a no-op in-cage via `AGENT_CAGE`.                                       |
-| Claude version            | Image ships latest; host and cage share `~/.claude`                                   | Daily rebuild keeps them aligned.                                                                                        |
-| Host-executed scripts     | **`~/.claude/hooks`, settings, statusline mounted read-only** (within rw `~/.claude`) | Prevents the cage from poisoning code that later runs on the host (see §2/§7).                                           |
-| Secret exfiltration       | **Accepted for now** (open egress + creds mounted)                                    | Cage protects against destruction, not exfiltration; revisit later (§2/§10).                                             |
-| Version control           | **Commit yes; push via `gh`/https only** (git/jj identity mounted ro, no SSH keys)    | Safe default: agent can't push to arbitrary ssh remotes; GitHub https push works via mounted `gh` auth (§7).             |
-| Extra toolchains          | **dotnet + node only; Dockerfile structured for one-block extension**                 | User's primary stack; adding Rust/Python/Go later must be a single documented edit (§5).                                 |
-| Timezone                  | **`TZ=Europe/Warsaw` (CET)** in image/env                                             | Timestamps and time-relative reasoning match the user's locale.                                                          |
-| In-cage auto-update       | **Disabled** (`DISABLE_AUTOUPDATER=1`)                                                | Cage Claude version is owned by the image; prevents writes/drift mid-session.                                            |
-| SELinux                   | **`--security-opt label=disable`** (no `:z`/`:Z` relabel)                             | `:Z` would relabel all ~75 GB of `~/code` and mutate host labels; disable labeling instead.                              |
+| Area                      | Decision                                                                                      | Rationale                                                                                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Outer runtime             | **Rootless Podman**                                                                           | Runs as uid 1000; breakout is unprivileged. `--dangerously-skip-permissions` refuses to run as root anyway.                                        |
+| Session model             | **Ephemeral, parallel containers** (`podman run --rm`) from one image                         | User runs multiple cage sessions in parallel; no fragile long-lived container.                                                                     |
+| Durable toolchain         | **Baked into a base image**, rebuilt **daily by GitHub Actions**                              | Reproducible; auto-tracks latest Claude + tools.                                                                                                   |
+| Ad-hoc installs / caches  | **Shared named volumes**                                                                      | Persist across sessions and image rebuilds.                                                                                                        |
+| Host protection           | **Strict write-allowlist**                                                                    | Only `~/code`, `~/.claude`, and cage volumes are writable.                                                                                         |
+| Toolchains                | **Fresh install in image** (no host-binary reuse)                                             | User's host setup (brew/asdf) is irrelevant; only the tools matter.                                                                                |
+| Node versions             | **`fnm`** + per-project `.nvmrc`, versions in a shared volume                                 | Multiple node versions, auto-selected.                                                                                                             |
+| nvim / formatting         | **Mount the user's real `~/.config/nvim` + `~/.local/share/nvim` read-only**                  | Formatting hook must behave exactly as on host. Cannot be baked (host-specific, GitHub can't see it).                                              |
+| Networking                | **`--network host`** for all sessions                                                         | Bidirectional port-forwarding "just works".                                                                                                        |
+| Docker for testcontainers | **Single rootless-docker sidecar**, wrapper-managed, bounded to `~/code`                      | testcontainers needs real Docker; sidecar is reliable (vs. fragile nested DinD) and keeps the escape surface = `~/code`.                           |
+| Resource limits           | **`podman run --memory=4g --cpus=2`** per session (default, overridable)                      | Favors many parallel sessions; `limited` becomes a no-op in-cage via `AGENT_CAGE`.                                                                 |
+| Claude version            | Image ships latest; host and cage share `~/.claude`                                           | Daily rebuild keeps them aligned.                                                                                                                  |
+| Host-executed scripts     | **`~/.claude/hooks`, settings, statusline mounted read-only** (within rw `~/.claude`)         | Prevents the cage from poisoning code that later runs on the host (see §2/§7).                                                                     |
+| Secret exfiltration       | **Accepted for now** (open egress + creds mounted)                                            | Cage protects against destruction, not exfiltration; revisit later (§2/§10).                                                                       |
+| Version control           | **Commit yes; push via `gh`/https only** (git/jj identity mounted ro, no SSH keys)            | Safe default: agent can't push to arbitrary ssh remotes; GitHub https push works via mounted `gh` auth (§7).                                       |
+| Extra toolchains          | **dotnet + node only; Dockerfile structured for one-block extension**                         | User's primary stack; adding Rust/Python/Go later must be a single documented edit (§5).                                                           |
+| Kubernetes access         | **Opt-in (`--kube`) per-launch, minted read-only ServiceAccount tokens, config outside repo** | RBAC is server-side, so ro-mounting the real kubeconfig wouldn't restrict writes; per-launch minting avoids an always-on cluster credential (§7a). |
+| Timezone                  | **`TZ=Europe/Warsaw` (CET)** in image/env                                                     | Timestamps and time-relative reasoning match the user's locale.                                                                                    |
+| In-cage auto-update       | **Disabled** (`DISABLE_AUTOUPDATER=1`)                                                        | Cage Claude version is owned by the image; prevents writes/drift mid-session.                                                                      |
+| SELinux                   | **`--security-opt label=disable`** (no `:z`/`:Z` relabel)                                     | `:Z` would relabel all ~75 GB of `~/code` and mutate host labels; disable labeling instead.                                                        |
 
 ---
 
@@ -356,6 +357,49 @@ Notes:
   so the cache lands in a container-private/volume path and the tool still works.
 - nvim writable state (`~/.local/state/nvim`: shada, swap, lazy-lock) must be redirected
   to a writable location (tmpfs or volume) since the config/data mounts are ro (§9).
+
+### Kubernetes access (opt-in, read-only, §7a)
+
+**Problem:** the host kubeconfig for `mnj`'s clusters grants read-write RBAC. Unlike the
+other credentials in this table, kubectl's permissions are enforced **server-side** by the
+API server, not by the client — so mounting the real kubeconfig read-only (as a file) would
+only stop it from being _edited_, not restrict what `kubectl` can _do_ against the cluster.
+A client-side verb-allowlist wrapper would be bypassable by anything with the raw token
+(direct API calls), which doesn't meet the bar for a credential this cage otherwise treats
+carefully.
+
+**Decision:** mint a short-lived token, server-side scoped to read-only, per launch —
+mirroring the GCR access-token pattern above (mint on the host, bake into a generated
+config, never mount the ambient credential). Concretely:
+
+- **Cluster-side, one-time, per cluster:** a dedicated ServiceAccount (`cage-viewer`, in a
+  `agent-cage` namespace) bound via ClusterRoleBinding to the built-in **`view`**
+  ClusterRole — read (`get`/`list`/`watch`) on most resources, explicitly excluding Secrets,
+  and no write verbs. Requires cluster-admin-ish rights (`create serviceaccounts` +
+  `create clusterrolebindings`) to set up; not self-service on every cluster (verified: of
+  8 clusters checked, only 2 — `hotels-ci-gcp-context`, `hotels-pro-gcp-context` — allow it
+  without platform-team help; the rest are deliberately left unconfigured for now).
+- **Host-side config, outside this repo:** `~/.config/agent-cage/kube-contexts` (XDG config
+  dir, not checked in — which clusters to expose is host-specific and may include
+  cluster/namespace/SA names that shouldn't live in a public repo). One context name per
+  line; namespace/SA default to `agent-cage`/`cage-viewer`.
+- **Per-launch, only when `--kube` is passed:** `_cage_kube_config` (`bin/_cage-lib.sh`)
+  reads that file and, for each listed context, runs
+  `kubectl create token <sa> -n <ns> --duration <CAGE_KUBE_TOKEN_TTL>` (default `1h`) against
+  the host's real (read-write) kubeconfig — which can mint tokens for a ServiceAccount it can
+  read even where it can't bind roles. It then builds the generated kubeconfig **from
+  scratch**, entry by entry (`kubectl config set-cluster/set-credentials/set-context`),
+  pulling only two non-secret fields from the host context (the API server URL and its CA
+  cert) and using the freshly minted token as the sole auth. The host context's own auth
+  block (cert, `gke-gcloud-auth-plugin`, …) is never read into, or copied through, the
+  generated file — there's nothing to strip because nothing but those two fields was ever
+  pulled from the host in the first place. That generated file is mounted read-only at
+  `~/.kube/config`. Without `--kube`, `_cage_kube_config` returns immediately: no token is
+  minted and no kubeconfig exists in the cage at all — kubectl access is opt-in per session,
+  not ambient.
+- No `gke-gcloud-auth-plugin`/`gcloud` is needed **inside** the cage: the generated
+  kubeconfig uses plain bearer-token auth, resolved entirely on the host before the token is
+  baked in.
 
 ### Named volumes (persist across sessions and image rebuilds)
 
