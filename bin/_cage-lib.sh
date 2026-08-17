@@ -423,6 +423,7 @@ _cage_add_mounts() {
 
   # Skills' scripts (on PATH).
   _cage_bind ro "$HOME/scripts" "$CAGE_HOME/scripts"
+  _cage_bind ro "$HOME/.cargo/bin/puff" "$CAGE_HOME/.cargo/bin/puff"
   # puff symlink target (resolves ~/code symlinks). rw because repos symlink their
   # `my-prds` dir here, and those PRDs are written to from within the cage.
   _cage_bind rw "$HOME/.local/share/puff/projects" "$CAGE_HOME/.local/share/puff/projects"
