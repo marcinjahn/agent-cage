@@ -36,7 +36,7 @@ RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
 # vim-common provides xxd for hex dump/patch workflows.
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng tree \
-        fd-find \
+        fd-find ripgrep \
         git jq \
         perl \
         libicu \
