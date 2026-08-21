@@ -183,16 +183,24 @@ cage_build_run_args() {
 }
 
 # Append a bind mount, skipping (with a warning) anything missing on the host or
-# whose destination is already mounted. Dedup matters for --mount-cwd: the cwd is
-# bound first (rw), so a later standard mount of the same dir (e.g. the read-only
-# nvim config) is skipped here instead of making podman fail on a duplicate
-# destination — the explicit rw cwd mount wins. Tracked in _CAGE_SEEN_DESTS, a
-# local of _cage_add_mounts that this dynamically-scoped helper can see.
+# whose destination is already mounted. A --mount-cwd bind intentionally wins over
+# every standard mount beneath it, including read-only overlays, so the user can
+# modify any file under the requested cwd. _CAGE_SEEN_DESTS and
+# _CAGE_MOUNT_CWD_DEST are locals of _cage_add_mounts that this dynamically-scoped
+# helper can see.
 _cage_bind() {
   local mode="$1" src="$2" dst="$3"
   if [ ! -e "$src" ]; then
     cage_err "skipping missing mount: $src"
     return 0
+  fi
+  if [ -n "${_CAGE_MOUNT_CWD_DEST:-}" ] && [ "$dst" != "$_CAGE_MOUNT_CWD_DEST" ]; then
+    case "$dst" in
+    "$_CAGE_MOUNT_CWD_DEST"/*)
+      cage_err "skipping $mode mount of $dst — covered by --mount-cwd"
+      return 0
+      ;;
+    esac
   fi
   if [ -n "${_CAGE_SEEN_DESTS[$dst]:-}" ]; then
     cage_err "skipping $mode mount of $dst — already mounted (${_CAGE_SEEN_DESTS[$dst]})"
@@ -315,6 +323,7 @@ _cage_add_mounts() {
   # Destination dedup for _cage_bind (see there). Local, but bash's dynamic scope
   # lets _cage_bind read it while we're on the stack.
   local -A _CAGE_SEEN_DESTS=()
+  local _CAGE_MOUNT_CWD_DEST=""
 
   # --mount-cwd: bind the current dir (rw) at the same host path so a session can
   # run from outside the work roots (-w "$PWD" then resolves to real files).
@@ -324,6 +333,7 @@ _cage_add_mounts() {
   # mounted rw there anyway). The docker sidecar still only sees ~/code, so
   # testcontainers bind-mounting an ad-hoc cwd won't reach it.
   if [ "$CAGE_MOUNT_CWD" = "1" ] && ! _cage_under_work_root "$PWD"; then
+    _CAGE_MOUNT_CWD_DEST="$PWD"
     _cage_bind rw "$PWD" "$PWD"
   fi
 
