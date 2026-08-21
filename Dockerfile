@@ -209,6 +209,7 @@ RUN groupadd -g 1000 mnj \
         /home/mnj/.local/bin \
         /home/mnj/.npm \
         /home/mnj/.nuget/packages \
+        /home/mnj/.microsoft \
         /home/mnj/.local/state/nvim \
         # Pre-create ~/.config owned by mnj: the cage bind-mounts nested paths
         # (~/.config/jj, nvim, gh, …) but not ~/.config itself, so without this

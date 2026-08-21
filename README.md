@@ -108,7 +108,8 @@ lingering: `sudo loginctl enable-linger $USER`.
   podman mounts/env/flags, does the rate-limited image pull, and manages the sidecar.
 - **Mounts** (`DESIGN.md` §7): `~/code`, `~/.claude`, and `~/.gemini` are read-write; the host-executed
   `~/.claude` and `~/.gemini/config` scripts/skills/settings are overlaid
-  **read-only**; credentials, VCS identity, and the nvim config/data are read-only.
+  **read-only**; credentials (including .NET user secrets), VCS identity, and the nvim
+  config/data are read-only.
 - **Sidecar** (`DESIGN.md` §8): one shared rootless-docker container
   (`docker:dind-rootless`), bounded to `~/code`, exposing a socket the cage reaches via
   `DOCKER_HOST`. Started/managed entirely by the wrappers.

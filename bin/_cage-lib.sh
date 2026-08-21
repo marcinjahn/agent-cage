@@ -437,6 +437,7 @@ _cage_add_mounts() {
   _cage_bind ro "$(_cage_docker_config)" "$CAGE_HOME/.docker/config.json"
   _cage_bind ro "$HOME/.npmrc" "$CAGE_HOME/.npmrc"
   _cage_bind ro "$HOME/.config/NuGet" "$CAGE_HOME/.config/NuGet"
+  _cage_bind ro "$HOME/.microsoft/usersecrets" "$CAGE_HOME/.microsoft/usersecrets"
   _cage_bind ro "$HOME/.config/acli" "$CAGE_HOME/.config/acli"
   _cage_bind ro "$HOME/.config/gh" "$CAGE_HOME/.config/gh"
   # Context7 CLI (ctx7) OAuth tokens. Just the credentials file (ro), so the dir

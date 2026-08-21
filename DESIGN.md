@@ -66,7 +66,7 @@ rewrite them, an injected prompt could plant code that later executes _outside_ 
 as you. Read-only overlays close that door. (See §7.)
 
 **Accepted risk — secret exfiltration (not mitigated for now):** the cage mounts
-credentials (docker/npm/nuget/acli/gh, and the Claude token in
+credentials (docker/npm/nuget/.NET user secrets/acli/gh, and the Claude token in
 `~/.claude/.credentials.json`) readable by a full-permissions agent, with **open network
 egress** (§10). The cage prevents _destruction_ of host data but does **not** prevent an
 injected prompt from _reading those secrets and sending them out_. Accepted deliberately
@@ -135,7 +135,7 @@ implementation time; do not hardcode beyond what's noted.
   `~/.claude.json`) + 2 project-level. HTTP MCP needs only network + the shared config —
   no local server binary.
 - Credentials present: `~/.docker`, `~/.npmrc`, `~/.config/NuGet`, `~/.nuget`,
-  `~/.config/gh`, `~/.config/acli`.
+  `~/.microsoft/usersecrets`, `~/.config/gh`, `~/.config/acli`.
 - VCS identity: `~/.gitconfig` and jj config (`~/.config/jj/config.toml`) on host —
   needed in the cage (ro) so commits have correct author. **No SSH keys** are mounted
   (push is via `gh`/https only — see §7).
@@ -313,6 +313,7 @@ Key points:
 | `~/.docker/config.json`           | same (file)         | ro     | registry auth (GCR rewritten to a baked token — below)    |
 | `~/.npmrc`                        | same (file)         | ro     | npm auth                                                  |
 | `~/.config/NuGet`                 | same                | ro     | nuget sources/auth                                        |
+| `~/.microsoft/usersecrets`        | same                | ro     | .NET development user secrets                             |
 | `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages     |
 | `~/.local/share/pnpm/store`       | same                | **rw** | shared pnpm store — same fs as `~/code` so hardlinks work |
 | `~/.cache/pnpm`                   | same                | **rw** | pnpm metadata cache                                       |
@@ -560,23 +561,23 @@ hook, or shell-prompt customization.
 
 ## 12. Requirement → mechanism (traceability)
 
-| Original requirement                             | Mechanism                                                             |
-| ------------------------------------------------ | --------------------------------------------------------------------- |
-| Host `~/.claude` settings apply                  | `~/.claude` rw bind mount                                             |
-| Install tools in cage, persist                   | Baked image + shared volumes (fnm versions, global prefix, caches)    |
-| Still use host claude normally                   | Separate `claude-cage` command; host untouched                        |
-| Access all of `~/code`                           | `~/code` rw mount                                                     |
-| Copy/paste host absolute paths (within `~/code`) | Identical `/home/mnj/code` path via `--userns=keep-id`                |
-| Start from cwd                                   | `podman run -w "$PWD"`                                                |
-| Works like normal, different command             | `claude-cage` wrapper                                                 |
-| Symlinks outside `~/code`                        | `~/.local/share/puff/projects` ro mount (covers all puff links)       |
-| Access `~/scripts`                               | ro mount, on PATH                                                     |
-| Sessions shared both ways                        | Path identity + shared `~/.claude`                                    |
-| Notification hook → host                         | dbus session-bus socket mount + `notify-send` in image                |
-| Formatting hook (nvim)                           | Fedora base + ro mounts of nvim config/data + formatters on PATH      |
-| `CLAUDE_NO_FORMAT` etc.                          | Wrapper forwards `--env`                                              |
-| Bidirectional port-forward                       | `--network host`                                                      |
-| Auth: docker/npm/nuget/gh/acli/MCP               | ro config mounts + shared `~/.claude.json` (MCP) + sidecar for docker |
+| Original requirement                                 | Mechanism                                                             |
+| ---------------------------------------------------- | --------------------------------------------------------------------- |
+| Host `~/.claude` settings apply                      | `~/.claude` rw bind mount                                             |
+| Install tools in cage, persist                       | Baked image + shared volumes (fnm versions, global prefix, caches)    |
+| Still use host claude normally                       | Separate `claude-cage` command; host untouched                        |
+| Access all of `~/code`                               | `~/code` rw mount                                                     |
+| Copy/paste host absolute paths (within `~/code`)     | Identical `/home/mnj/code` path via `--userns=keep-id`                |
+| Start from cwd                                       | `podman run -w "$PWD"`                                                |
+| Works like normal, different command                 | `claude-cage` wrapper                                                 |
+| Symlinks outside `~/code`                            | `~/.local/share/puff/projects` ro mount (covers all puff links)       |
+| Access `~/scripts`                                   | ro mount, on PATH                                                     |
+| Sessions shared both ways                            | Path identity + shared `~/.claude`                                    |
+| Notification hook → host                             | dbus session-bus socket mount + `notify-send` in image                |
+| Formatting hook (nvim)                               | Fedora base + ro mounts of nvim config/data + formatters on PATH      |
+| `CLAUDE_NO_FORMAT` etc.                              | Wrapper forwards `--env`                                              |
+| Bidirectional port-forward                           | `--network host`                                                      |
+| Auth: docker/npm/nuget/.NET user secrets/gh/acli/MCP | ro config mounts + shared `~/.claude.json` (MCP) + sidecar for docker |
 
 ---
 
