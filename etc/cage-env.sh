@@ -34,7 +34,6 @@ command_not_found_handle() {
 
 alias dotnet-counters='dotnet counters'
 alias dotnet-gcdump='dotnet gcdump'
-alias dotnet-gcforce='dotnet gcforce'
 
 # Idempotency without breaking sandboxed subshells. Key the skip on THIS shell's
 # PATH (the mason bin dir below is prepended unconditionally, so it's a reliable

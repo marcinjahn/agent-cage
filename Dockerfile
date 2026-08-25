@@ -202,10 +202,10 @@ RUN dotnet tool install --tool-path /opt/dotnet-tools csharpier
 # csharp-ls — C# LSP server used by claude's LSP plugin. Same baked-tool path.
 RUN dotnet tool install --tool-path /opt/dotnet-tools csharp-ls
 
-# .NET diagnostics tools — inspect runtime counters, collect GC dumps, and force GC.
+# .NET diagnostics tools — inspect runtime counters, collect GC dumps, and decompile assemblies.
 RUN dotnet tool install --tool-path /opt/dotnet-tools dotnet-counters \
     && dotnet tool install --tool-path /opt/dotnet-tools dotnet-gcdump \
-    && dotnet tool install --tool-path /opt/dotnet-tools dotnet-gcforce
+    && dotnet tool install --tool-path /opt/dotnet-tools ilspycmd
 
 # ---------------------------------------------------------------------------
 # 3. User + writable mountpoints
