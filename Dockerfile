@@ -16,8 +16,9 @@ ARG DOTNET_CHANNEL_9=9.0
 # pipefail so a failed `curl` in a `curl … | bash` pipeline aborts the build.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Trim every dnf install: nodocs drops man pages/docs, install_weak_deps=False
-# skips recommended-but-unneeded deps. Applies to all dnf layers below.
+# Trim every dnf install: nodocs drops docs, install_weak_deps=False skips
+# recommended-but-unneeded deps. The man-db/man-pages layer below overrides nodocs.
+# Applies to all other dnf layers below.
 RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
 
 # ---------------------------------------------------------------------------
@@ -48,6 +49,11 @@ RUN dnf -y install \
         vim-common \
         iputils iproute traceroute mtr bind-utils \
         nmap nmap-ncat tcpdump socat whois net-tools wget telnet lsof \
+    && dnf clean all
+
+# Install the man command and the standard Linux manual pages despite the global
+# nodocs setting above.
+RUN dnf -y --setopt=tsflags= install man-db man-pages \
     && dnf clean all
 
 # GitHub CLI from the official repo (tracks latest).
