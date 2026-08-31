@@ -34,12 +34,15 @@ RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
 # network tools (iputils=ping, bind-utils=dig/nslookup/host, iproute=ip/ss,
 # traceroute, mtr, nmap, nmap-ncat=nc, tcpdump, socat, whois, net-tools,
 # bind-utils, wget, telnet, lsof) cover typical connectivity/DNS debugging.
-# vim-common provides xxd for hex dump/patch workflows.
+# vim-common provides xxd for hex dump/patch workflows. time provides the
+# standalone /usr/bin/time (GNU time, with -v for peak RSS etc.) — bash's
+# built-in `time` keyword doesn't support that.
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng tree \
         fd-find ripgrep \
         git jq \
         perl \
+        time \
         libicu \
         neovim libnotify \
         gcc gcc-c++ make \
