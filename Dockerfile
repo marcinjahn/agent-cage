@@ -43,6 +43,7 @@ RUN dnf -y install \
         git jq \
         perl \
         time \
+        bc \
         libicu \
         neovim libnotify \
         gcc gcc-c++ make \
