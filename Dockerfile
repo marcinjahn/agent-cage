@@ -167,6 +167,16 @@ RUN TOFU_URL="$(curl -fsSL https://api.github.com/repos/opentofu/opentofu/releas
     && chmod +x /usr/local/bin/tofu \
     && rm -f /tmp/tofu.zip
 
+# process-compose — Compose-style process orchestrator/scheduler for local dev,
+# latest release, single static binary.
+RUN PC_URL="$(curl -fsSL https://api.github.com/repos/F1bonacc1/process-compose/releases/latest \
+        | jq -r '.assets[] | select(.name == "process-compose_linux_amd64.tar.gz") | .browser_download_url' \
+        | head -n1)" \
+    && curl -fsSL "$PC_URL" -o /tmp/process-compose.tgz \
+    && tar -xzf /tmp/process-compose.tgz -C /usr/local/bin process-compose \
+    && chmod +x /usr/local/bin/process-compose \
+    && rm -f /tmp/process-compose.tgz
+
 # fnm (node version manager) binary on PATH; node versions live in a volume (§7).
 RUN curl -fsSL https://fnm.vercel.app/install \
         | bash -s -- --install-dir /usr/local/bin --skip-shell
