@@ -437,6 +437,12 @@ _cage_add_mounts() {
   # puff symlink target (resolves ~/code symlinks). rw because repos symlink their
   # `my-prds` dir here, and those PRDs are written to from within the cage.
   _cage_bind rw "$HOME/.local/share/puff/projects" "$CAGE_HOME/.local/share/puff/projects"
+  # Project registry (config.json: name -> path associations). rw because `puff
+  # init`/`link` write to it. Without this, the cage sees its own empty,
+  # container-private registry and every `puff link` fails with "not associated
+  # with any directory on this machine".
+  mkdir -p "$HOME/.config/puff" 2>/dev/null || true
+  _cage_bind rw "$HOME/.config/puff" "$CAGE_HOME/.config/puff"
 
   # nvim config + data (ro) for the formatting hook (DESIGN §9). State is a volume.
   _cage_bind ro "$HOME/.config/nvim" "$CAGE_HOME/.config/nvim"
