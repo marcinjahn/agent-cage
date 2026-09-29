@@ -541,6 +541,20 @@ cage_sidecar_healthy() {
   podman exec "$CAGE_SIDECAR_NAME" docker info >/dev/null 2>&1
 }
 
+# Colon-joined host /dev entries to mask in the sidecar: every device node and
+# device directory except those rootless dockerd and its containers rely on.
+_cage_sidecar_dev_masks() {
+  local keep=" null zero full random urandom tty console ptmx pts shm mqueue fuse net fd core hugepages "
+  local p masks=""
+  for p in /dev/*; do
+    case "$keep" in *" ${p#/dev/} "*) continue ;; esac
+    [ -L "$p" ] && continue
+    [ -c "$p" ] || [ -b "$p" ] || [ -d "$p" ] || continue
+    masks+="${masks:+:}$p"
+  done
+  printf '%s' "$masks"
+}
+
 cage_sidecar_start() {
   cage_err "starting docker sidecar ($CAGE_SIDECAR_NAME)…"
   local extra=()
@@ -560,15 +574,16 @@ cage_sidecar_start() {
   # unmask=all, with or without a writable /sys bind) are NOT enough: the nested
   # sysfs mount still gets EPERM. This is the standard way docker:dind-rootless runs.
   #
-  # mask=/dev/bus is the one deviation from stock --privileged. Privileged
-  # bind-mounts the host's entire /dev into the sidecar, leaking host hardware —
-  # notably hot-plugged /dev/bus/usb/* USB nodes. The nested rootless runc then
-  # tries to recreate those group-owned nodes for the containers it launches and
-  # fails — `error creating device nodes: mount src=/dev/bus/usb/...` / OCI
-  # BadRequest (containers/podman#4900). Masking /dev/bus hides them after the
-  # /dev bind (a plain --tmpfs is clobbered by privileged's recursive /dev
-  # re-bind; an explicit mask survives), so /dev/bus/usb is empty and nested
-  # containers start cleanly. The sidecar needs zero host USB devices.
+  # The device masks are the one deviation from stock --privileged. Privileged
+  # bind-mounts every host device node into the sidecar, snapshotted at creation.
+  # The nested rootless runc re-binds each of them into every privileged container
+  # it launches (e.g. testcontainers' Ryuk), which fails for group-owned nodes
+  # (/dev/bus/usb/*, containers/podman#4900) and for nodes hot-unplugged on the
+  # host since the sidecar started (a monitor/dock leaves a stale /dev/drm_dp_auxN)
+  # — `error creating device nodes: mount src=/dev/... no such file or directory`.
+  # Masking them swaps each for /dev/null or an empty tmpfs, which stay valid (a
+  # plain --tmpfs is clobbered by privileged's recursive /dev re-bind; an explicit
+  # mask survives). The sidecar needs no host hardware.
   #
   # --userns=keep-id aligns the daemon's socket owner with the host uid so cage
   # sessions can use it; but it maps only the host's single 65536-id subuid block
@@ -580,7 +595,7 @@ cage_sidecar_start() {
   if ! podman run -d --name "$CAGE_SIDECAR_NAME" \
     --privileged \
     --security-opt label=disable \
-    --security-opt mask=/dev/bus \
+    --security-opt "mask=$(_cage_sidecar_dev_masks)" \
     --userns=keep-id \
     --network host \
     --stop-timeout 30 \
