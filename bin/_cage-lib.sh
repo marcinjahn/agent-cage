@@ -480,6 +480,20 @@ _cage_add_mounts() {
   _cage_bind ro "/run/user/1000/bus" "/run/cage/bus"
 }
 
+# Echo 75% of a podman --memory value (e.g. 4g, 512m, 1073741824) in MiB.
+_cage_node_heap_mb() {
+  local v="${1,,}" num unit bytes
+  [[ "$v" =~ ^([0-9]+)([bkmg]?)$ ]] || return 1
+  num="${BASH_REMATCH[1]}" unit="${BASH_REMATCH[2]}"
+  case "$unit" in
+  k) bytes=$((num * 1024)) ;;
+  m) bytes=$((num * 1024 * 1024)) ;;
+  g) bytes=$((num * 1024 * 1024 * 1024)) ;;
+  *) bytes=$num ;;
+  esac
+  echo $((bytes * 3 / 4 / 1024 / 1024))
+}
+
 _cage_add_envs() {
   RUN_ARGS+=(
     --env AGENT_CAGE=1                    # cage marker (DESIGN §11)
@@ -489,6 +503,16 @@ _cage_add_envs() {
     --env "TZ=Europe/Warsaw"
     --env "DISABLE_AUTOUPDATER=1"
   )
+
+  # V8 sizes its default heap from the cgroup limit (~2.2 GB under 4g), which is
+  # too small for big webpack builds; give Node 75% of the cage instead.
+  local heap_mb
+  if heap_mb="$(_cage_node_heap_mb "$CAGE_MEMORY")"; then
+    RUN_ARGS+=(--env "NODE_OPTIONS=--max-old-space-size=$heap_mb")
+  else
+    cage_err "can't parse CAGE_MEMORY=$CAGE_MEMORY; leaving Node's default heap limit"
+  fi
+
   # GitHub token for the Copilot CLI and `gh` inside the cage. The host keeps it in
   # the OS keyring (not a file), so it can't be bind-mounted like other creds; we
   # read it out with `gh auth token` and forward it as GH_TOKEN, which both Copilot

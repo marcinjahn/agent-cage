@@ -144,7 +144,7 @@ being edited, not what `kubectl` could do against the API. Instead:
 | Var                    | Default                                | Purpose                                                                          |
 | ---------------------- | -------------------------------------- | -------------------------------------------------------------------------------- |
 | `CAGE_IMAGE`           | `ghcr.io/marcinjahn/agent-cage:latest` | base image reference                                                             |
-| `CAGE_MEMORY`          | `4g`                                   | per-session memory cap                                                           |
+| `CAGE_MEMORY`          | `4g`                                   | per-session memory cap; Node's heap limit (`NODE_OPTIONS`) is set to 75% of it   |
 | `CAGE_CPUS`            | `2`                                    | per-session CPU cap                                                              |
 | `CAGE_PULL_INTERVAL`   | `86400`                                | min seconds between `:latest` checks (`0` = every launch; `--update` forces one) |
 | `CAGE_NO_PULL`         | `0`                                    | `1` skips the registry check and runs the cached image as-is (`--no-update`)     |
