@@ -1,7 +1,7 @@
 # agent-cage
 
-Run **Claude Code** or **Antigravity CLI (agy)** in a selectable permission mode without endangering
-the host. The agent may freely change anything inside `~/code`, `~/.claude` and `~/.gemini`, but cannot
+Run **Claude Code** in a selectable permission mode (default: `auto`) without endangering
+the host. Claude may freely change anything inside `~/code` and `~/.claude`, but cannot
 reach or damage the host OS, dotfiles, SSH/GPG keys, browser data, or anything else in your
 home directory. For a fully unattended session, `--mode bypass` skips every permission
 check (`--dangerously-skip-permissions`).
@@ -25,11 +25,6 @@ and rationale.
 | `claude-cage --mount-cwd`   | run from a dir outside the work roots; mounts the cwd into the cage   |
 | `claude-cage --kube`        | mint + mount read-only kubectl access (see "Kubernetes access" below) |
 | `claude-cage --help`        | list Claude-cage modes and usage                                      |
-| `agy-cage [args…]`          | like `agy` but inside the cage; forwards args to `agy`                |
-| `agy-cage --mode <mode>`    | pick the permission mode for agy (default `default`; see `--help`)    |
-| `agy-cage --mount-cwd`      | run from a dir outside the work roots; mounts the cwd into the cage   |
-| `agy-cage --kube`           | mint + mount read-only kubectl access (see "Kubernetes access" below) |
-| `agy-cage --help`           | list agy-cage modes and usage                                         |
 | `cage`                      | interactive shell in a fresh cage container (inspect/install)         |
 | `cage --kube`               | same, for the interactive shell                                       |
 | `cage docker status`        | inspect the shared rootless-docker sidecar (testcontainers)           |
@@ -103,11 +98,11 @@ lingering: `sudo loginctl enable-linger $USER`.
   formatters (csharpier/prettier/stylua/eslint/rustfmt),
   `jj`/`git`/`gh`/`acli`/`just`/`jq`/`yq`/`difft`/`ctx7`/`pnpm`/`bun`/`terraform`/`tofu`/`ccusage`, docker CLI,
   `kubectl` (read-only access only — see below), the Playwright CLI (with Google Chrome), Claude Code,
-  Antigravity CLI (agy), and the GitHub Copilot CLI. Built daily and pushed to GHCR.
-- **Wrappers** (`bin/`): `claude-cage`, `agy-cage`, and `cage` share `_cage-lib.sh`, which assembles all
+  and the GitHub Copilot CLI. Built daily and pushed to GHCR.
+- **Wrappers** (`bin/`): `claude-cage` and `cage` share `_cage-lib.sh`, which assembles all
   podman mounts/env/flags, does the rate-limited image pull, and manages the sidecar.
-- **Mounts** (`DESIGN.md` §7): `~/code`, `~/.claude`, and `~/.gemini` are read-write; the host-executed
-  `~/.claude` and `~/.gemini/config` scripts/skills/settings are overlaid
+- **Mounts** (`DESIGN.md` §7): `~/code` and `~/.claude` are read-write; the host-executed
+  `~/.claude` scripts (`hooks/`, `settings*.json`, `statusline-command.sh`) are overlaid
   **read-only**; credentials (including .NET user secrets), VCS identity, and the nvim
   config/data are read-only.
 - **Sidecar** (`DESIGN.md` §8): one shared rootless-docker container
@@ -134,7 +129,7 @@ being edited, not what `kubectl` could do against the API. Instead:
    specific, not checked in), one context name per line. See the comments in that file for
    the format (namespace/serviceaccount default to `agent-cage`/`cage-viewer`).
 
-3. **Pass `--kube`** on any wrapper (`claude-cage --kube`, `agy-cage --kube`, `cage --kube`).
+3. **Pass `--kube`** on any wrapper (`claude-cage --kube`, `cage --kube`).
    Only then does the wrapper mint a short-lived (`CAGE_KUBE_TOKEN_TTL`, default `1h`) token
    per listed context and mount a generated, token-based kubeconfig into the cage. Without
    `--kube`, no token is minted and `kubectl` inside the cage has no config at all.

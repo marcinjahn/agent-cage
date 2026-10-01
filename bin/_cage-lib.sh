@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared configuration and helpers for the agent-cage wrappers (DESIGN §6-§8).
-# Sourced by `claude-cage`, `agy-cage`, and `cage`; not meant to be executed directly.
+# Sourced by `claude-cage` and `cage`; not meant to be executed directly.
 
 # --- configuration (override via environment) --------------------------------
 CAGE_IMAGE="${CAGE_IMAGE:-ghcr.io/marcinjahn/agent-cage:latest}"
@@ -380,25 +380,6 @@ _cage_add_mounts() {
   _cage_bind rw "$HOME/.claude" "$CAGE_HOME/.claude"
   _cage_bind rw "$HOME/.claude.json" "$CAGE_HOME/.claude.json"
 
-  # Antigravity CLI (agy) state and configuration (rw).
-  _cage_bind rw "$HOME/.gemini" "$CAGE_HOME/.gemini"
-
-  # Host-executed config, settings, and skills within ~/.gemini, overlaid read-only
-  # so an injected prompt cannot plant code that later runs on the host as you.
-  _cage_bind ro "$HOME/.gemini/config/config.json" "$CAGE_HOME/.gemini/config/config.json"
-  _cage_bind ro "$HOME/.gemini/config/mcp_config.json" "$CAGE_HOME/.gemini/config/mcp_config.json"
-  _cage_bind ro "$HOME/.gemini/config/skills" "$CAGE_HOME/.gemini/config/skills"
-  _cage_bind ro "$HOME/.gemini/settings.json" "$CAGE_HOME/.gemini/settings.json"
-
-  # Credentials / identifiers — mount config files ro to prevent editing/corruption.
-  _cage_bind ro "$HOME/.gemini/google_accounts.json" "$CAGE_HOME/.gemini/google_accounts.json"
-  _cage_bind ro "$HOME/.gemini/oauth_creds.json" "$CAGE_HOME/.gemini/oauth_creds.json"
-  _cage_bind ro "$HOME/.gemini/mcp-oauth-tokens-v2.json" "$CAGE_HOME/.gemini/mcp-oauth-tokens-v2.json"
-  _cage_bind ro "$HOME/.gemini/installation_id" "$CAGE_HOME/.gemini/installation_id"
-  _cage_bind ro "$HOME/.gemini/user_id" "$CAGE_HOME/.gemini/user_id"
-  _cage_bind ro "$HOME/.gemini/google_account_id" "$CAGE_HOME/.gemini/google_account_id"
-  _cage_bind ro "$HOME/.gemini/projects.json" "$CAGE_HOME/.gemini/projects.json"
-
   # Scratch space the triage-issue skill clones repos into and writes reports to.
   _cage_bind rw "$HOME/triage-issues" "$CAGE_HOME/triage-issues"
 
@@ -551,11 +532,6 @@ _cage_add_envs() {
   # Forward any CLAUDE_* set on the host (CLAUDE_NO_FORMAT, CLAUDE_BYPASS_BUILD_SUMMARY, …).
   local name
   for name in $(env | grep -oE '^CLAUDE_[A-Za-z0-9_]+' || true); do
-    RUN_ARGS+=(--env "$name")
-  done
-
-  # Forward any AGY_* set on the host (AGY_EFFORT, AGY_MODEL, …).
-  for name in $(env | grep -oE '^AGY_[A-Za-z0-9_]+' || true); do
     RUN_ARGS+=(--env "$name")
   done
 }

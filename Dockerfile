@@ -354,8 +354,7 @@ RUN eval "$(fnm env --shell bash)" \
 
 # ---------------------------------------------------------------------------
 # --- version-pinned-to-nothing installs (keep these LAST) ------------------
-# CACHEBUST: the installs below (Claude Code, Antigravity, Copilot, ctx7, pnpm,
-# ccusage) are RUN/curl/npm commands whose instruction text never changes, so
+# CACHEBUST: the installs below (Claude Code, Copilot, ctx7, pnpm, ccusage) are RUN/curl/npm commands whose instruction text never changes, so
 # Docker's layer cache replays them unchanged instead of re-fetching whatever's
 # actually latest — silently freezing their versions across rebuilds, local or
 # CI's daily one, until something above them in the Dockerfile changes.
@@ -371,12 +370,6 @@ ARG CACHEBUST=1
 # image owns the version; DISABLE_AUTOUPDATER keeps it from drifting in-session.
 RUN : "${CACHEBUST}" && curl -fsSL https://claude.ai/install.sh | bash \
     && /home/mnj/.local/bin/claude --version > /home/mnj/.cage-claude-version 2>/dev/null || true
-
-# Antigravity CLI (agy) — latest, via the native installer (standalone binary).
-# Installed under ~/.local/bin (image layer, not a volume) so the image owns
-# the version; DISABLE_AUTOUPDATER keeps it from drifting in-session.
-RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
-    && /home/mnj/.local/bin/agy --version > /home/mnj/.cage-agy-version 2>/dev/null || true
 
 # GitHub Copilot CLI — latest, into a dedicated /opt/copilot prefix (image layer,
 # NOT the /opt/cage volume) so the daily rebuild owns the version; --prefix
@@ -419,7 +412,7 @@ RUN eval "$(fnm env --shell bash)" \
 ENV BASH_ENV=/etc/cage/env.sh
 
 LABEL org.opencontainers.image.title="agent-cage" \
-      org.opencontainers.image.description="Claude Code and Antigravity CLI in a cage, sandboxed and packed with various dev tools" \
+      org.opencontainers.image.description="Claude Code in a cage, sandboxed and packed with various dev tools" \
       org.opencontainers.image.source="https://github.com/marcinjahn/agent-cage"
 
 CMD ["claude", "--dangerously-skip-permissions"]
