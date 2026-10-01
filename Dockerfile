@@ -24,7 +24,8 @@ RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
 # ---------------------------------------------------------------------------
 # 1. System packages
 # ---------------------------------------------------------------------------
-# neovim + libnotify drive the formatting and notification hooks; fuse-overlayfs
+# libnotify drives the notification hook (neovim is installed separately below,
+# from upstream, because Fedora's package lags behind); fuse-overlayfs
 # is for the rootless docker sidecar's storage; the build basics let mason/npm
 # compile anything not already prebuilt in the mounted data dir. libicu is
 # required by the .NET SDK (§2) for globalization — without it dotnet crashes.
@@ -46,7 +47,7 @@ RUN dnf -y install \
         bc \
         patchutils \
         libicu \
-        neovim libnotify \
+        libnotify \
         gcc gcc-c++ make \
         fuse-overlayfs \
         e2fsprogs \
@@ -82,6 +83,17 @@ RUN KUBECTL_VERSION="$(curl -fsSL https://dl.k8s.io/release/stable.txt)" \
     && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
         -o /usr/local/bin/kubectl \
     && chmod +x /usr/local/bin/kubectl
+
+# neovim — latest upstream release (Fedora's package lags a minor version behind).
+# Drives the formatting hook (DESIGN §9).
+RUN NVIM_URL="$(curl -fsSL https://api.github.com/repos/neovim/neovim/releases/latest \
+        | jq -r '.assets[] | select(.name == "nvim-linux-x86_64.tar.gz") | .browser_download_url' \
+        | head -n1)" \
+    && curl -fsSL "$NVIM_URL" -o /tmp/nvim.tgz \
+    && mkdir -p /opt/nvim \
+    && tar -xzf /tmp/nvim.tgz -C /opt/nvim --strip-components=1 \
+    && ln -sf /opt/nvim/bin/nvim /usr/local/bin/nvim \
+    && rm -f /tmp/nvim.tgz
 
 # acli (Atlassian CLI) — per Atlassian's Linux instructions (single static binary).
 RUN curl -fsSL "https://acli.atlassian.com/linux/latest/acli_linux_amd64/acli" \
