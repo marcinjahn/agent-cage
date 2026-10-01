@@ -29,6 +29,7 @@ RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
 # is for the rootless docker sidecar's storage; the build basics let mason/npm
 # compile anything not already prebuilt in the mounted data dir. libicu is
 # required by the .NET SDK (§2) for globalization — without it dotnet crashes.
+# libatomic is required by upstream Node 26 binaries (libatomic.so.1).
 # e2fsprogs provides lsattr/chattr for inspecting/setting ext-family file
 # attributes. diffutils provides diff/patch/cmp (difft below handles structural
 # diffing, but scripts and patch workflows need the classic tools too). The
@@ -47,6 +48,7 @@ RUN dnf -y install \
         bc \
         patchutils \
         libicu \
+        libatomic \
         libnotify \
         gcc gcc-c++ make \
         fuse-overlayfs \
