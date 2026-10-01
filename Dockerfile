@@ -44,6 +44,7 @@ RUN dnf -y install \
         perl \
         time \
         bc \
+        patchutils \
         libicu \
         neovim libnotify \
         gcc gcc-c++ make \
