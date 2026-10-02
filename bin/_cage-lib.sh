@@ -459,6 +459,32 @@ _cage_add_mounts() {
   # $XDG_RUNTIME_DIR/bus) so the runtime tmpfs above doesn't shadow it; the matching
   # DBUS_SESSION_BUS_ADDRESS points here.
   _cage_bind ro "/run/user/1000/bus" "/run/cage/bus"
+
+  # Image-only clipboard paste via a host broker (the cage's wl-paste is a shim
+  # talking to it), rather than handing the cage the Wayland socket — which would
+  # expose the whole clipboard, text included (DESIGN §9).
+  local clip_sock
+  if clip_sock="$(_cage_clip_broker_start)"; then
+    _cage_bind ro "$clip_sock" "/run/cage/clipboard.sock"
+  fi
+}
+
+# Start the session's clipboard broker, echoing its socket path. It watches $$ —
+# the wrapper, which execs into podman — and exits when the session ends.
+_cage_clip_broker_start() {
+  command -v python3 >/dev/null || return 1
+  local dir="${XDG_RUNTIME_DIR:-/tmp}/agent-cage"
+  local sock="$dir/clip-$$.sock"
+  mkdir -p -m 700 "$dir" || return 1
+  setsid -f python3 "$(dirname "${BASH_SOURCE[0]}")/_cage-clip-broker" "$sock" "$$" \
+    </dev/null >/dev/null 2>&1 || return 1
+  local _
+  for _ in $(seq 1 20); do
+    [ -S "$sock" ] && printf '%s' "$sock" && return 0
+    sleep 0.1
+  done
+  cage_err "clipboard broker didn't start; image paste won't work in this session"
+  return 1
 }
 
 # Echo 75% of a podman --memory value (e.g. 4g, 512m, 1073741824) in MiB.

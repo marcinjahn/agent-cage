@@ -321,6 +321,7 @@ Key points:
 | `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note)    |
 | `~/.context7/credentials.json`    | same (file)         | ro     | Context7 CLI (`ctx7`) OAuth tokens                        |
 | `/run/user/1000/bus`              | `/run/cage/bus`     | ro     | notifications via dbus (outside the runtime tmpfs)        |
+| `$XDG_RUNTIME_DIR/agent-cage/clip-<pid>.sock` | `/run/cage/clipboard.sock` | ro | image-only clipboard broker (§9) |
 
 **SELinux:** use `--security-opt label=disable` (§6) rather than `:z`/`:Z` mount flags —
 `:Z` would relabel the entire ~75 GB `~/code` tree and mutate host labels. Do not relabel.
@@ -520,6 +521,25 @@ dedupes to one notification per tool per session — not `/tmp`, which is bind-m
 host (§7) and so persists across sessions. The handler is defined **before** the file's
 idempotency guard so it's present even in nested shells that short-circuit it.
 
+### Clipboard image paste
+
+On Linux, Claude Code pastes images (Ctrl+V) by shelling out to `xclip … || wl-paste -l` /
+`wl-paste --type image/png`. Mounting the host Wayland socket would make that work, but it
+would also hand the cage the **whole** clipboard — including copied passwords and tokens —
+plus a general compositor connection. Instead:
+
+- The wrapper starts a per-session **host broker** (`bin/_cage-clip-broker`, python3) on a
+  `0600` unix socket under `$XDG_RUNTIME_DIR/agent-cage/`, mounted at
+  `/run/cage/clipboard.sock`. It reads the host clipboard with `wl-paste` (or `xclip` on X11)
+  but only ever lists or returns `image/(png|jpeg|jpg|gif|webp|bmp)`; text requests get
+  nothing. It watches the wrapper's pid (which `exec`s into podman) and exits, removing the
+  socket, when the session ends.
+- The image ships a **`wl-paste` stand-in** (`etc/wl-paste` → `/usr/local/bin/wl-paste`)
+  that supports only `-l` and `--type <mime>` and forwards them to the broker.
+
+Residual exposure: anything in the cage can still read a clipboard **image** at any time
+during the session (not only on Ctrl+V) — e.g. a screenshot you copied for something else.
+
 ---
 
 ## 10. Networking
@@ -574,6 +594,7 @@ hook, or shell-prompt customization.
 | Access `~/scripts`                                   | ro mount, on PATH                                                     |
 | Sessions shared both ways                            | Path identity + shared `~/.claude`                                    |
 | Notification hook → host                             | dbus session-bus socket mount + `notify-send` in image                |
+| Paste images (Ctrl+V)                                | host image-only clipboard broker + `wl-paste` shim in image (§9)      |
 | Formatting hook (nvim)                               | Fedora base + ro mounts of nvim config/data + formatters on PATH      |
 | `CLAUDE_NO_FORMAT` etc.                              | Wrapper forwards `--env`                                              |
 | Bidirectional port-forward                           | `--network host`                                                      |
@@ -600,6 +621,8 @@ Implement, then verify each of these empirically:
       `fnm use --install-if-missing` (an unbaked version must be fetched on demand into the
       FNM_DIR volume); verify `node -v` matches `.nvmrc` in a fresh cage, not just after `cd`.
 - [ ] **Notifications** from the cage appear on the host desktop.
+- [ ] **Image paste** (Ctrl+V) works in `claude-cage`; `wl-paste` in the cage returns
+      nothing for copied text.
 - [ ] **Sessions** created in the cage are visible/resumable on the host and vice-versa.
 - [ ] **Hook/settings ro overlay** holds: cage cannot write `~/.claude/hooks`,
       `settings.json`, `settings.local.json`, `statusline-command.sh` (verify writes fail).

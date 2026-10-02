@@ -270,6 +270,10 @@ RUN groupadd -g 1000 mnj \
 COPY --chown=root:root etc/cage-env.sh /etc/cage/env.sh
 RUN ln -sf /etc/cage/env.sh /etc/profile.d/cage.sh
 
+# Image-only clipboard paste: a wl-paste stand-in that talks to the host broker
+# (bin/_cage-clip-broker) instead of giving the cage the Wayland socket.
+COPY --chown=root:root --chmod=755 etc/wl-paste /usr/local/bin/wl-paste
+
 ENV FNM_DIR=/opt/fnm \
     NPM_CONFIG_PREFIX=/opt/cage \
     TZ=Europe/Warsaw \

@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+# Host-side, image-only clipboard broker for a cage session (DESIGN §9).
+#
+# Usage: _cage-clip-broker <socket-path> <pid-to-watch>
+#
+# Serves the cage's wl-paste shim (etc/wl-paste) over a unix socket. Only image
+# MIME types are ever listed or returned, so text in the host clipboard never
+# reaches the cage, and the cage gets no Wayland/X11 access of its own. Exits
+# (removing the socket) once the watched pid — the wrapper, which execs into
+# podman — is gone.
+#
+# Protocol: one request line per connection, raw bytes back, then close.
+#   LIST          -> newline-separated image MIME types currently offered
+#   GET <mime>    -> the clipboard contents as <mime> (empty if unavailable)
+
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+
+IMAGE_TYPE = re.compile(r"image/(png|jpeg|jpg|gif|webp|bmp)")
+TIMEOUT_S = 5
+
+
+def _clipboard_cmd(args_wl, args_x):
+    if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-paste"):
+        return ["wl-paste", *args_wl]
+    if os.environ.get("DISPLAY") and shutil.which("xclip"):
+        return ["xclip", "-selection", "clipboard", *args_x]
+    return None
+
+
+def _run(cmd):
+    if cmd is None:
+        return b""
+    try:
+        return subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=TIMEOUT_S,
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return b""
+
+
+def list_types():
+    out = _run(_clipboard_cmd(["--list-types"], ["-t", "TARGETS", "-o"]))
+    types = [t for t in out.decode(errors="replace").split() if IMAGE_TYPE.fullmatch(t)]
+    return "\n".join(types).encode() + (b"\n" if types else b"")
+
+
+def get(mime):
+    if not IMAGE_TYPE.fullmatch(mime):
+        return b""
+    return _run(_clipboard_cmd(["--no-newline", "--type", mime], ["-t", mime, "-o"]))
+
+
+def handle(conn):
+    with conn:
+        conn.settimeout(TIMEOUT_S)
+        try:
+            request = conn.makefile("rb").readline(256).decode(errors="replace").split()
+        except OSError:
+            return
+        if request == ["LIST"]:
+            reply = list_types()
+        elif len(request) == 2 and request[0] == "GET":
+            reply = get(request[1])
+        else:
+            reply = b""
+        try:
+            conn.sendall(reply)
+        except OSError:
+            pass
+
+
+def watch(pid, path):
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            pass
+        time.sleep(1)
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    os._exit(0)
+
+
+def main():
+    path, pid = sys.argv[1], int(sys.argv[2])
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    old_umask = os.umask(0o177)
+    server.bind(path)
+    os.umask(old_umask)
+    server.listen(4)
+    threading.Thread(target=watch, args=(pid, path), daemon=True).start()
+    while True:
+        conn, _ = server.accept()
+        handle(conn)
+
+
+if __name__ == "__main__":
+    main()
