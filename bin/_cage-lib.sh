@@ -9,6 +9,10 @@ CAGE_SIDECAR_IMAGE="${CAGE_SIDECAR_IMAGE:-docker.io/library/docker:dind-rootless
 # Per-session resource caps (DESIGN §3 — favors many parallel sessions).
 CAGE_MEMORY="${CAGE_MEMORY:-4g}"
 CAGE_CPUS="${CAGE_CPUS:-2}"
+# Counts threads, not just processes: podman's default of 2048 is exhausted by
+# Playwright's Chromium plus a few Node/.NET builds, and every program in the
+# cage (claude included) then aborts as soon as it fails to start a thread.
+CAGE_PIDS="${CAGE_PIDS:-16384}"
 
 # Lazy pull: refresh :latest at most once per this many seconds. Default is once
 # a day so day-to-day launches are fast and don't hit the registry; the image is
@@ -177,6 +181,7 @@ cage_build_run_args() {
     --security-opt label=disable # do NOT relabel ~/code (~75 GB); DESIGN §7
     --memory="$CAGE_MEMORY"
     --cpus="$CAGE_CPUS"
+    --pids-limit="$CAGE_PIDS"
     -w "$PWD" # start in the same dir -> shared session encoding
   )
   _cage_add_mounts

@@ -93,7 +93,7 @@ root-on-host and defeats the cage.
 | nvim / formatting         | **Mount the user's real `~/.config/nvim` + `~/.local/share/nvim` read-only**                  | Formatting hook must behave exactly as on host. Cannot be baked (host-specific, GitHub can't see it).                                              |
 | Networking                | **`--network host`** for all sessions                                                         | Bidirectional port-forwarding "just works".                                                                                                        |
 | Docker for testcontainers | **Single rootless-docker sidecar**, wrapper-managed, bounded to `~/code`                      | testcontainers needs real Docker; sidecar is reliable (vs. fragile nested DinD) and keeps the escape surface = `~/code`.                           |
-| Resource limits           | **`podman run --memory=4g --cpus=2`** per session (default, overridable)                      | Favors many parallel sessions; `limited` becomes a no-op in-cage via `AGENT_CAGE`.                                                                 |
+| Resource limits           | **`podman run --memory=4g --cpus=2 --pids-limit=16384`** per session (default, overridable)  | Favors many parallel sessions; `limited` becomes a no-op in-cage via `AGENT_CAGE`.                                                                 |
 | Claude version            | Image ships latest; host and cage share `~/.claude`                                           | Daily rebuild keeps them aligned.                                                                                                                  |
 | Host-executed scripts     | **`~/.claude/hooks`, settings, statusline mounted read-only** (within rw `~/.claude`)         | Prevents the cage from poisoning code that later runs on the host (see §2/§7).                                                                     |
 | Secret exfiltration       | **Accepted for now** (open egress + creds mounted)                                            | Cage protects against destruction, not exfiltration; revisit later (§2/§10).                                                                       |
@@ -242,7 +242,7 @@ Pseudocode:
      --userns=keep-id \
      --network host \
      --security-opt label=disable \   # do NOT relabel ~/code (~75 GB); see §7
-     --memory=4g --cpus=2 \            # default cap; see §3 / overridable
+     --memory=4g --cpus=2 --pids-limit=16384 \  # default caps; see §3 / overridable
      -w "$PWD" \
      <all mounts from §7> \
      <all envs from §6 env list> \

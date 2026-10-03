@@ -141,6 +141,7 @@ being edited, not what `kubectl` could do against the API. Instead:
 | `CAGE_IMAGE`           | `ghcr.io/marcinjahn/agent-cage:latest` | base image reference                                                             |
 | `CAGE_MEMORY`          | `4g`                                   | per-session memory cap; Node's heap limit (`NODE_OPTIONS`) is set to 75% of it   |
 | `CAGE_CPUS`            | `2`                                    | per-session CPU cap                                                              |
+| `CAGE_PIDS`            | `16384`                                | per-session cap on processes + threads (`-1` = unlimited)                        |
 | `CAGE_PULL_INTERVAL`   | `86400`                                | min seconds between `:latest` checks (`0` = every launch; `--update` forces one) |
 | `CAGE_NO_PULL`         | `0`                                    | `1` skips the registry check and runs the cached image as-is (`--no-update`)     |
 | `CAGE_KUBE_TOKEN_TTL`  | `1h`                                   | validity of the minted read-only kubectl tokens (`--kube`)                       |
