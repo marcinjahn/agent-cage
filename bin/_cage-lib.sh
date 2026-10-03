@@ -6,13 +6,24 @@
 CAGE_IMAGE="${CAGE_IMAGE:-ghcr.io/marcinjahn/agent-cage:latest}"
 CAGE_SIDECAR_IMAGE="${CAGE_SIDECAR_IMAGE:-docker.io/library/docker:dind-rootless}"
 
-# Per-session resource caps (DESIGN §3 — favors many parallel sessions).
-CAGE_MEMORY="${CAGE_MEMORY:-4g}"
-CAGE_CPUS="${CAGE_CPUS:-2}"
+# Per-session resource caps (DESIGN §3). These are ceilings, not reservations: an
+# idle session costs nothing extra, so they're sized for one busy session to build
+# and test quickly. Protecting the host from many busy sessions at once is the job
+# of the shared slice below.
+CAGE_MEMORY="${CAGE_MEMORY:-8g}"
+CAGE_CPUS="${CAGE_CPUS:-6}"
 # Counts threads, not just processes: podman's default of 2048 is exhausted by
 # Playwright's Chromium plus a few Node/.NET builds, and every program in the
 # cage (claude included) then aborts as soon as it fails to start a thread.
 CAGE_PIDS="${CAGE_PIDS:-16384}"
+
+# Combined caps for ALL cage sessions plus the docker sidecar, enforced by a shared
+# systemd --user slice they're all placed in (DESIGN §3). MemoryHigh throttles and
+# reclaims rather than OOM-killing, so a pile-up of busy sessions slows down
+# instead of freezing the desktop. CPUs may be fractional (e.g. 7.5).
+CAGE_SLICE="${CAGE_SLICE:-agentcage.slice}"
+CAGE_TOTAL_MEMORY="${CAGE_TOTAL_MEMORY:-22G}"
+CAGE_TOTAL_CPUS="${CAGE_TOTAL_CPUS:-12}"
 
 # Lazy pull: refresh :latest at most once per this many seconds. Default is once
 # a day so day-to-day launches are fast and don't hit the registry; the image is
@@ -50,6 +61,12 @@ CAGE_VOL_FNM="agent-cage-fnm"
 CAGE_VOL_NPM="agent-cage-npm"
 CAGE_VOL_GLOBAL="agent-cage-global"
 CAGE_VOL_NVIM_STATE="agent-cage-nvim-state"
+CAGE_VOL_NVIM_CACHE="agent-cage-nvim-cache"
+CAGE_VOL_PIP_CACHE="agent-cage-pip-cache"
+CAGE_VOL_DOTNET="agent-cage-dotnet"
+CAGE_VOL_NUGET_HTTP="agent-cage-nuget-http"
+CAGE_VOL_CARGO_REGISTRY="agent-cage-cargo-registry"
+CAGE_VOL_CARGO_GIT="agent-cage-cargo-git"
 
 # Container-side fixed paths (single-user; uid 1000 / home /home/mnj).
 CAGE_HOME="/home/mnj"
@@ -169,11 +186,37 @@ cage_lazy_pull() {
   fi
 }
 
+# --- shared slice (combined caps) ---------------------------------------------
+# Write the systemd --user slice that every cage container is placed in. The unit
+# is rewritten (and systemd reloaded) only when the configured totals change, so
+# a normal launch costs one file read. Echoes the slice name for --cgroup-parent;
+# fails when systemd --user is unusable, and callers then run unparented.
+_cage_slice() {
+  command -v systemctl >/dev/null 2>&1 || return 1
+  local unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user" quota want
+  local unit="$unit_dir/$CAGE_SLICE"
+  quota="$(awk -v c="$CAGE_TOTAL_CPUS" 'BEGIN { printf "%d", c * 100 }')"
+  want="$(printf '[Unit]\nDescription=agent-cage sessions + docker sidecar (combined caps)\n\n[Slice]\nMemoryHigh=%s\nCPUQuota=%s%%' \
+    "$CAGE_TOTAL_MEMORY" "$quota")"
+  if [ "$(cat "$unit" 2>/dev/null)" != "$want" ]; then
+    mkdir -p "$unit_dir" && printf '%s\n' "$want" >"$unit" &&
+      systemctl --user daemon-reload || return 1
+  fi
+  printf '%s' "$CAGE_SLICE"
+}
+
 # --- run-argument assembly ----------------------------------------------------
 # Populates the global RUN_ARGS array with all flags, mounts and envs shared by
 # the wrappers and the `cage` shell.
 cage_build_run_args() {
-  RUN_ARGS=(
+  local slice
+  if slice="$(_cage_slice)"; then
+    RUN_ARGS=(--cgroup-parent="$slice")
+  else
+    RUN_ARGS=()
+    cage_err "couldn't set up $CAGE_SLICE; running without the combined cap"
+  fi
+  RUN_ARGS+=(
     --rm
     --init                       # catatonit as PID 1: reaps orphaned tool shells and forwards signals; claude is not an init
     --userns=keep-id             # host uid 1000 <-> container uid 1000 (DESIGN §6)
@@ -352,6 +395,20 @@ _cage_add_mounts() {
     -v "$CAGE_VOL_SOCK:/sock"
   )
 
+  # Caches that would otherwise start cold in every --rm session. Volumes, not
+  # binds of the host's own caches: these hold code that host builds would later
+  # run (cargo sources, nupkgs), so a shared rw bind would let the cage plant code
+  # outside it. Only chosen subdirs of ~/.cache: the image bakes Copilot's binary
+  # into ~/.cache/copilot, which a whole-dir volume would freeze at its first copy.
+  RUN_ARGS+=(
+    -v "$CAGE_VOL_NVIM_CACHE:$CAGE_HOME/.cache/nvim"
+    -v "$CAGE_VOL_PIP_CACHE:$CAGE_HOME/.cache/pip"
+    -v "$CAGE_VOL_DOTNET:$CAGE_HOME/.dotnet"
+    -v "$CAGE_VOL_NUGET_HTTP:$CAGE_HOME/.local/share/NuGet"
+    -v "$CAGE_VOL_CARGO_REGISTRY:$CAGE_HOME/.cargo/registry"
+    -v "$CAGE_VOL_CARGO_GIT:$CAGE_HOME/.cargo/git"
+  )
+
   # Share the host nuget restore cache (rw) so builds reuse already-downloaded
   # packages instead of re-pulling into an empty volume. uid 1000 maps through
   # --userns=keep-id so writes land back in the host cache with correct
@@ -493,7 +550,7 @@ _cage_clip_broker_start() {
   return 1
 }
 
-# Echo 75% of a podman --memory value (e.g. 4g, 512m, 1073741824) in MiB.
+# Echo half of a podman --memory value (e.g. 4g, 512m, 1073741824) in MiB.
 _cage_node_heap_mb() {
   local v="${1,,}" num unit bytes
   [[ "$v" =~ ^([0-9]+)([bkmg]?)$ ]] || return 1
@@ -504,7 +561,7 @@ _cage_node_heap_mb() {
   g) bytes=$((num * 1024 * 1024 * 1024)) ;;
   *) bytes=$num ;;
   esac
-  echo $((bytes * 3 / 4 / 1024 / 1024))
+  echo $((bytes / 2 / 1024 / 1024))
 }
 
 _cage_add_envs() {
@@ -517,8 +574,18 @@ _cage_add_envs() {
     --env "DISABLE_AUTOUPDATER=1"
   )
 
-  # V8 sizes its default heap from the cgroup limit (~2.2 GB under 4g), which is
-  # too small for big webpack builds; give Node 75% of the cage instead.
+  # nproc and Python's os.cpu_count() report the host's cores, not the --cpus
+  # quota, so `make -j$(nproc)`, `xargs -P` etc. would start a worker per host
+  # core and thrash the quota. GNU nproc honors OMP_NUM_THREADS; Python 3.13+
+  # honors PYTHON_CPU_COUNT. (Node, .NET and Rust already read the quota.)
+  local cpus
+  cpus="$(awk -v c="$CAGE_CPUS" 'BEGIN { n = int(c); if (n < c) n++; if (n < 1) n = 1; print n }')"
+  RUN_ARGS+=(--env "OMP_NUM_THREADS=$cpus" --env "PYTHON_CPU_COUNT=$cpus")
+
+  # V8 sizes its default heap from the cgroup limit, which can be too small for
+  # big webpack builds. Half the cage, not more: this applies to EVERY node process
+  # (tsserver, eslint, jest workers), and two of them each allowed most of the cage
+  # would get the whole session OOM-killed instead of failing with a heap error.
   local heap_mb
   if heap_mb="$(_cage_node_heap_mb "$CAGE_MEMORY")"; then
     RUN_ARGS+=(--env "NODE_OPTIONS=--max-old-space-size=$heap_mb")
@@ -589,8 +656,10 @@ _cage_sidecar_dev_masks() {
 
 cage_sidecar_start() {
   cage_err "starting docker sidecar ($CAGE_SIDECAR_NAME)…"
-  local extra=()
+  local extra=() run_extra=() slice
   [ -n "$CAGE_SIDECAR_STORAGE" ] && extra+=("--storage-driver=$CAGE_SIDECAR_STORAGE")
+  # testcontainers' databases count toward the same combined cap as the sessions.
+  slice="$(_cage_slice)" && run_extra+=(--cgroup-parent="$slice")
 
   # Rootless dind under rootless Podman (DESIGN §8). Mounts ONLY ~/code so a
   # docker bind-mount escape is bounded to the same surface as the cage.
@@ -625,6 +694,7 @@ cage_sidecar_start() {
   # (testcontainers etc.). If it won't start we warn and let the caller continue
   # without it, rather than blocking the session from launching entirely.
   if ! podman run -d --name "$CAGE_SIDECAR_NAME" \
+    "${run_extra[@]}" \
     --privileged \
     --security-opt label=disable \
     --security-opt "mask=$(_cage_sidecar_dev_masks)" \

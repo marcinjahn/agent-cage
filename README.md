@@ -139,8 +139,10 @@ being edited, not what `kubectl` could do against the API. Instead:
 | Var                    | Default                                | Purpose                                                                          |
 | ---------------------- | -------------------------------------- | -------------------------------------------------------------------------------- |
 | `CAGE_IMAGE`           | `ghcr.io/marcinjahn/agent-cage:latest` | base image reference                                                             |
-| `CAGE_MEMORY`          | `4g`                                   | per-session memory cap; Node's heap limit (`NODE_OPTIONS`) is set to 75% of it   |
-| `CAGE_CPUS`            | `2`                                    | per-session CPU cap                                                              |
+| `CAGE_MEMORY`          | `8g`                                   | per-session memory cap; Node's heap limit (`NODE_OPTIONS`) is set to half of it  |
+| `CAGE_CPUS`            | `6`                                    | per-session CPU cap; `nproc`/Python report it via `OMP_NUM_THREADS`/`PYTHON_CPU_COUNT` |
+| `CAGE_TOTAL_MEMORY`    | `22G`                                  | `MemoryHigh` of `agentcage.slice`, shared by all sessions + the docker sidecar   |
+| `CAGE_TOTAL_CPUS`      | `12`                                   | `CPUQuota` (in CPUs) of `agentcage.slice`                                        |
 | `CAGE_PIDS`            | `16384`                                | per-session cap on processes + threads (`-1` = unlimited)                        |
 | `CAGE_PULL_INTERVAL`   | `86400`                                | min seconds between `:latest` checks (`0` = every launch; `--update` forces one) |
 | `CAGE_NO_PULL`         | `0`                                    | `1` skips the registry check and runs the cached image as-is (`--no-update`)     |

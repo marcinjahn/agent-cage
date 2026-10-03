@@ -93,7 +93,7 @@ root-on-host and defeats the cage.
 | nvim / formatting         | **Mount the user's real `~/.config/nvim` + `~/.local/share/nvim` read-only**                  | Formatting hook must behave exactly as on host. Cannot be baked (host-specific, GitHub can't see it).                                              |
 | Networking                | **`--network host`** for all sessions                                                         | Bidirectional port-forwarding "just works".                                                                                                        |
 | Docker for testcontainers | **Single rootless-docker sidecar**, wrapper-managed, bounded to `~/code`                      | testcontainers needs real Docker; sidecar is reliable (vs. fragile nested DinD) and keeps the escape surface = `~/code`.                           |
-| Resource limits           | **`podman run --memory=4g --cpus=2 --pids-limit=16384`** per session (default, overridable)  | Favors many parallel sessions; `limited` becomes a no-op in-cage via `AGENT_CAGE`.                                                                 |
+| Resource limits           | **`--memory=8g --cpus=6 --pids-limit=16384`** per session, all inside `agentcage.slice` (`MemoryHigh=22G`, `CPUQuota=1200%`) | Per-session caps are ceilings, not reservations, so one busy session builds fast while idle ones cost nothing; the shared slice keeps many busy sessions + the sidecar from swamping the host. `limited` is a no-op in-cage via `AGENT_CAGE`. |
 | Claude version            | Image ships latest; host and cage share `~/.claude`                                           | Daily rebuild keeps them aligned.                                                                                                                  |
 | Host-executed scripts     | **`~/.claude/hooks`, settings, statusline mounted read-only** (within rw `~/.claude`)         | Prevents the cage from poisoning code that later runs on the host (see §2/§7).                                                                     |
 | Secret exfiltration       | **Accepted for now** (open egress + creds mounted)                                            | Cage protects against destruction, not exfiltration; revisit later (§2/§10).                                                                       |
@@ -242,7 +242,8 @@ Pseudocode:
      --userns=keep-id \
      --network host \
      --security-opt label=disable \   # do NOT relabel ~/code (~75 GB); see §7
-     --memory=4g --cpus=2 --pids-limit=16384 \  # default caps; see §3 / overridable
+     --cgroup-parent=agentcage.slice \  # combined cap for all sessions + sidecar; see §3
+     --memory=8g --cpus=6 --pids-limit=16384 \  # default per-session caps; see §3 / overridable
      -w "$PWD" \
      <all mounts from §7> \
      <all envs from §6 env list> \
@@ -411,6 +412,16 @@ config, never mount the ambient credential). Concretely:
 | npm cache          | `~/.npm`                   | npm cache                                       |
 | cage global prefix | e.g. `/opt/cage` (on PATH) | ad-hoc `npm i -g` / `dotnet tool install -g`    |
 | nvim state         | `~/.local/state/nvim`      | writable nvim runtime state                     |
+| nvim cache         | `~/.cache/nvim`            | compiled-Lua cache, so headless formatting starts warm |
+| pip cache          | `~/.cache/pip`             | pip download cache                              |
+| dotnet home        | `~/.dotnet`                | first-run state, workload manifests             |
+| NuGet HTTP cache   | `~/.local/share/NuGet`     | feed metadata, so restores don't re-query feeds |
+| cargo registry/git | `~/.cargo/registry`, `~/.cargo/git` | crate index + sources                  |
+
+These caches are volumes rather than binds of the host's own caches: they hold code that
+host builds would later run, so a shared rw bind would let the cage plant code outside it.
+Only chosen subdirs of `~/.cache` are covered, because the image bakes Copilot's binary into
+`~/.cache/copilot`, which a whole-directory volume would freeze at its first copy.
 
 ---
 
