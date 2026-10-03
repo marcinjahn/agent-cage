@@ -38,13 +38,15 @@ RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
 # bind-utils, wget, telnet, lsof) cover typical connectivity/DNS debugging.
 # vim-common provides xxd for hex dump/patch workflows. time provides the
 # standalone /usr/bin/time (GNU time, with -v for peak RSS etc.) — bash's
-# built-in `time` keyword doesn't support that.
+# built-in `time` keyword doesn't support that. systemd provides coredumpctl
+# for inspecting crash dumps.
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng tree \
         fd-find ripgrep \
         git jq \
         perl \
         time \
+        systemd \
         bc \
         patchutils \
         libicu \
