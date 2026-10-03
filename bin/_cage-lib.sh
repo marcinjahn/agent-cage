@@ -171,6 +171,7 @@ cage_lazy_pull() {
 cage_build_run_args() {
   RUN_ARGS=(
     --rm
+    --init                       # catatonit as PID 1: reaps orphaned tool shells and forwards signals; claude is not an init
     --userns=keep-id             # host uid 1000 <-> container uid 1000 (DESIGN §6)
     --network host               # bidirectional port-forwarding (DESIGN §10)
     --security-opt label=disable # do NOT relabel ~/code (~75 GB); DESIGN §7
