@@ -339,14 +339,16 @@ RUN dnf -y install ruby rubygems \
 USER mnj
 
 # Playwright CLI (@playwright/cli), for the playwright-cli skill (browser
-# automation). The only browser is Google Chrome, installed from Google's RPM
+# automation). The default browser is Google Chrome, installed from Google's RPM
 # repo: playwright-cli launches the branded `chrome` channel by DEFAULT when no
 # --browser is given (hardcoded `channel ?? "chrome"` in its bundled daemon), so
 # without it every default `playwright-cli open` fails with "Chromium
 # distribution 'chrome' is not found at /opt/google/chrome/chrome". The chrome
 # RPM pulls its own OS libraries, so no shared-lib set is listed explicitly;
 # `playwright install chrome` can't do this on Fedora (it only drives apt on
-# Debian/Ubuntu). dnf needs root, hence the dance.
+# Debian/Ubuntu). libX11-xcb is the only OS library Playwright's Firefox build
+# (installed below) needs beyond what Chrome already pulls in. dnf needs root,
+# hence the dance.
 USER root
 RUN printf '%s\n' \
         '[google-chrome]' \
@@ -356,20 +358,23 @@ RUN printf '%s\n' \
         'gpgcheck=1' \
         'gpgkey=https://dl.google.com/linux/linux_signing_key.pub' \
         > /etc/yum.repos.d/google-chrome.repo \
-    && dnf -y install google-chrome-stable \
+    && dnf -y install google-chrome-stable libX11-xcb \
     && dnf clean all
 USER mnj
 
 # CLI into a dedicated /opt/playwright prefix (image layer, NOT the /opt/cage
 # volume) so the daily rebuild owns the version. PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
 # suppresses the bundled-browser download that @playwright/cli's `playwright` dep
-# would otherwise run on install — we use the system Chrome (above), not
-# Playwright's own Chromium/Firefox. Skipping it also sidesteps the yauzl
-# regression that hangs browser-archive extraction on Node 24.16.0+
-# (microsoft/playwright#40724), so the default Node is fine and no throwaway
-# Node 22 is needed.
+# would otherwise run on install — Chromium is covered by the system Chrome
+# (above). Firefox (`--browser=firefox`) has to be Playwright's own patched build,
+# so it is installed explicitly via the CLI's bundled playwright-core, keeping its
+# revision in lockstep with the CLI. It lands in the default
+# ~/.cache/ms-playwright (an image layer, no volume covers it). The timeout turns
+# a regression of the archive-extraction hang seen on Node 24.16.0+
+# (microsoft/playwright#40724) into a build failure instead of a stuck build.
 RUN eval "$(fnm env --shell bash)" \
     && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g --prefix /opt/playwright @playwright/cli \
+    && timeout 600 /opt/playwright/lib/node_modules/@playwright/cli/node_modules/.bin/playwright-core install firefox \
     && { /opt/playwright/bin/playwright-cli --version > /home/mnj/.cage-playwright-version 2>/dev/null || true; }
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ default:
     @just --list
 
 # Build the cage image locally with podman (heavy: Fedora + .NET + node +
-# Google Chrome — first build is a full cold build, no shared GHCR cache).
+# Google Chrome + Firefox — first build is a full cold build, no shared GHCR cache).
 build:
     # --format docker: the Dockerfile uses the SHELL instruction, which the
     # default OCI image format doesn't support (podman would warn and ignore it).
