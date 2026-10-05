@@ -261,6 +261,9 @@ RUN groupadd -g 1000 mnj \
         # Same reasoning for ~/.kube: the generated read-only kubeconfig is
         # bind-mounted as a nested file (~/.kube/config), not the dir itself.
         /home/mnj/.kube \
+        # Same for ~/.local/share/pnpm: only its store/ is bind-mounted, and a
+        # root-owned parent makes pnpm fail with EACCES on its global state.
+        /home/mnj/.local/share/pnpm \
     && chown -R mnj:mnj /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /opt/pnpm /opt/playwright /opt/ccusage /home/mnj
 
 # ---------------------------------------------------------------------------
