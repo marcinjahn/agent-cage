@@ -39,7 +39,8 @@ RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
 # vim-common provides xxd for hex dump/patch workflows. time provides the
 # standalone /usr/bin/time (GNU time, with -v for peak RSS etc.) — bash's
 # built-in `time` keyword doesn't support that. systemd provides coredumpctl
-# for inspecting crash dumps.
+# for inspecting crash dumps. ImageMagick provides magick for image
+# conversion/inspection.
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng tree \
         fd-find ripgrep \
@@ -57,6 +58,7 @@ RUN dnf -y install \
         e2fsprogs \
         diffutils patch \
         vim-common \
+        ImageMagick \
         iputils iproute traceroute mtr bind-utils \
         nmap nmap-ncat tcpdump socat whois net-tools wget telnet lsof \
     && dnf clean all
