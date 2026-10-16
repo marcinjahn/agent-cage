@@ -106,8 +106,12 @@ lingering: `sudo loginctl enable-linger $USER`.
   **read-only**; credentials (including .NET user secrets), VCS identity, and the nvim
   config/data are read-only.
 - **Sidecar** (`DESIGN.md` §8): one shared rootless-docker container
-  (`docker:dind-rootless`), bounded to `~/code`, exposing a socket the cage reaches via
-  `DOCKER_HOST`. Started/managed entirely by the wrappers.
+  (`docker:dind-rootless`), bounded to `~/code`, `~/tmp` and Claude's scratchpads
+  (`/tmp/claude-1000`), exposing a socket the cage reaches via `DOCKER_HOST`.
+  Started/managed entirely by the wrappers.
+- **Cage instructions:** `etc/cage-claude.md` is mounted read-only as Claude Code's managed
+  `/etc/claude-code/CLAUDE.md`, telling cage sessions (and only them) about the environment's
+  quirks. Changes apply on the next launch.
 
 ## Kubernetes access (optional, read-only, opt-in)
 
@@ -162,8 +166,8 @@ being edited, not what `kubectl` could do against the API. Instead:
   (the rw-mounted roots), so the cwd resolves to real files in the cage. To work elsewhere,
   pass `--mount-cwd`, which bind-mounts the current dir into the cage **read-write** at the
   same path. If that dir is otherwise mounted read-only (e.g. `~/.config/nvim`), the
-  read-write cwd mount takes precedence. The docker sidecar still only sees `~/code`, so
-  testcontainers bind-mounting an ad-hoc cwd won't reach it. (`DESIGN.md` §6/§8)
+  read-write cwd mount takes precedence. The docker sidecar still only sees `~/code`, `~/tmp`
+  and `/tmp/claude-1000`, so testcontainers bind-mounting an ad-hoc cwd won't reach it. (`DESIGN.md` §6/§8)
 - **Adding a language** (Rust/Python/Go/…): add one `RUN` block in the clearly-labelled
   `--- extra toolchains (add here) ---` section of the `Dockerfile`; the daily rebuild
   picks it up.

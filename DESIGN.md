@@ -56,7 +56,8 @@ notifications, port access, testcontainers).
   vice versa.
 - Host network services — `--network host` is used (see §10). The cage shares the host
   network namespace.
-- Anything reachable through the **docker sidecar**, bounded to `~/code` only (see §8).
+- Anything reachable through the **docker sidecar**, bounded to `~/code`, `~/tmp` and
+  `/tmp/claude-1000` (see §8) — all of which the cage can already write.
 
 **Closed escape path — host-executed `~/.claude` scripts (read-only in cage):**
 `~/.claude` is mounted rw so sessions/history work, BUT `~/.claude/hooks/`,
@@ -92,7 +93,7 @@ root-on-host and defeats the cage.
 | Node versions             | **`fnm`** + per-project `.nvmrc`, versions in a shared volume                                 | Multiple node versions, auto-selected.                                                                                                             |
 | nvim / formatting         | **Mount the user's real `~/.config/nvim` + `~/.local/share/nvim` read-only**                  | Formatting hook must behave exactly as on host. Cannot be baked (host-specific, GitHub can't see it).                                              |
 | Networking                | **`--network host`** for all sessions                                                         | Bidirectional port-forwarding "just works".                                                                                                        |
-| Docker for testcontainers | **Single rootless-docker sidecar**, wrapper-managed, bounded to `~/code`                      | testcontainers needs real Docker; sidecar is reliable (vs. fragile nested DinD) and keeps the escape surface = `~/code`.                           |
+| Docker for testcontainers | **Single rootless-docker sidecar**, wrapper-managed, bounded to `~/code` + scratch dirs       | testcontainers needs real Docker; sidecar is reliable (vs. fragile nested DinD) and keeps the escape surface within the cage's own rw mounts.      |
 | Resource limits           | **`--memory=8g --cpus=6 --pids-limit=16384`** per session, all inside `agentcage.slice` (`MemoryHigh=22G`, `CPUQuota=1200%`) | Per-session caps are ceilings, not reservations, so one busy session builds fast while idle ones cost nothing; the shared slice keeps many busy sessions + the sidecar from swamping the host. `limited` is a no-op in-cage via `AGENT_CAGE`. |
 | Claude version            | Image ships latest; host and cage share `~/.claude`                                           | Daily rebuild keeps them aligned.                                                                                                                  |
 | Host-executed scripts     | **`~/.claude/hooks`, settings, statusline mounted read-only** (within rw `~/.claude`)         | Prevents the cage from poisoning code that later runs on the host (see §2/§7).                                                                     |
@@ -324,6 +325,7 @@ Key points:
 | `~/.config/acli`                  | same                | ro     | acli auth                                                 |
 | `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note)    |
 | `~/.context7/credentials.json`    | same (file)         | ro     | Context7 CLI (`ctx7`) OAuth tokens                        |
+| `<repo>/etc/cage-claude.md`       | `/etc/claude-code/CLAUDE.md` | ro | cage-only agent instructions (managed CLAUDE.md, §8) |
 | `/run/user/1000/bus`              | `/run/cage/bus`     | ro     | notifications via dbus (outside the runtime tmpfs)        |
 | `$XDG_RUNTIME_DIR/agent-cage/clip-<pid>.sock` | `/run/cage/clipboard.sock` | ro | image-only clipboard broker (§9) |
 
@@ -482,11 +484,26 @@ mounts `etc/sidecar-subid` (`rootless:1001:64535`, fitted to the keep-id window)
 named volume mounted at `/sock` in both the sidecar and every cage session. Sessions get
 `DOCKER_HOST=unix:///sock/docker.sock`.
 
-**Safety (critical):** the sidecar mounts **only `~/code`** (rw, at the identical path) —
-required so testcontainers volume-binds referencing paths under `~/code` resolve inside
-the daemon's filesystem. Because that is the _only_ host path the daemon can see, a
-docker bind-mount escape is confined to `~/code` — the same boundary as the rest of the
-cage. Do **not** give the sidecar broader mounts.
+**Safety (critical):** the sidecar mounts **only `~/code`, `~/tmp` and
+`/tmp/claude-1000`** (rw, at the identical paths; `CAGE_SIDECAR_SHARED_DIRS`) — required
+so `docker run -v` / testcontainers binds referencing those paths resolve inside the
+daemon's filesystem (a `-v` source anywhere else silently becomes an empty dir there).
+`~/tmp` and Claude Code's scratchpads (`/tmp/claude-<uid>`) are included so temp files for
+containers needn't be dropped into `~/code`. All three are already rw in the cage, and root
+in a nested container maps to uid 1000, so a docker bind-mount escape reaches nothing the
+cage can't already write. Do **not** give the sidecar broader mounts (in particular not all
+of `/tmp`: the sidecar keeps its own rootlesskit state there).
+
+The wrapper creates these dirs before starting the sidecar and, on every launch, compares
+their inodes with the sidecar's view. A sidecar missing one (created before it was added)
+or holding a detached copy (the host dir was deleted and recreated) is recreated.
+
+**Agent instructions:** cage sessions get `etc/cage-claude.md` mounted read-only as Claude
+Code's managed `/etc/claude-code/CLAUDE.md`, which is loaded on top of the user's own
+CLAUDE.md. `~/.claude` is shared with the host, so cage-only notes (most importantly the
+sidecar's mount boundary above) can't go there. Keep it short — only what an agent would
+otherwise get wrong. The source sits in the rw `~/code`, so a cage agent could edit it;
+accepted, since it's instructions, not host-executed code.
 
 **Networking:** sidecar on host network so testcontainers' random mapped ports are
 reachable from the (also host-networked) cage sessions. Validate testcontainers + Ryuk

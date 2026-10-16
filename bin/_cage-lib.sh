@@ -97,6 +97,13 @@ CAGE_WORK_ROOTS=("$HOME/code" "$HOME/triage-issues")
 # Repo-relative assets (the sidecar's subordinate-id map — DESIGN §8).
 CAGE_ETC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../etc" && pwd)"
 
+# Host dirs the docker sidecar bind-mounts (rw, identical path), i.e. the only
+# paths `docker run -v` sources can come from. Besides the work, the user's scratch
+# dir and Claude Code's scratchpads (/tmp/claude-<uid>), so temp files for
+# containers need not live in ~/code. All are already rw in the cage, so the
+# docker escape surface stays the same (DESIGN §8).
+CAGE_SIDECAR_SHARED_DIRS=("$HOME/code" "$HOME/tmp" "/tmp/claude-$(id -u)")
+
 cage_err() { printf 'agent-cage: %s\n' "$*" >&2; }
 cage_die() {
   cage_err "$*"
@@ -379,8 +386,9 @@ _cage_add_mounts() {
   # Done FIRST so it wins over any standard mount of the same dir below — e.g. in
   # ~/.config/nvim the read-only config mount is skipped in favor of this rw one,
   # instead of colliding. Skipped when the cwd is already under a work root (it's
-  # mounted rw there anyway). The docker sidecar still only sees ~/code, so
-  # testcontainers bind-mounting an ad-hoc cwd won't reach it.
+  # mounted rw there anyway). The docker sidecar still only sees
+  # CAGE_SIDECAR_SHARED_DIRS, so testcontainers bind-mounting an ad-hoc cwd won't
+  # reach it.
   if [ "$CAGE_MOUNT_CWD" = "1" ] && ! _cage_under_work_root "$PWD"; then
     _CAGE_MOUNT_CWD_DEST="$PWD"
     _cage_bind rw "$PWD" "$PWD"
@@ -455,6 +463,10 @@ _cage_add_mounts() {
   _cage_bind ro "$HOME/.claude/settings.json" "$CAGE_HOME/.claude/settings.json"
   _cage_bind ro "$HOME/.claude/settings.local.json" "$CAGE_HOME/.claude/settings.local.json"
   _cage_bind ro "$HOME/.claude/statusline-command.sh" "$CAGE_HOME/.claude/statusline-command.sh"
+
+  # Cage-only instructions, loaded as Claude Code's managed CLAUDE.md. ~/.claude is
+  # shared with the host, so they can't live in the user's CLAUDE.md.
+  _cage_bind ro "$CAGE_ETC/cage-claude.md" "/etc/claude-code/CLAUDE.md"
 
   # VCS identity (ro) so commits carry the right author; no SSH keys (DESIGN §7).
   # .gitconfig's `includeIf "gitdir:~/code/"` pulls in .gitconfig-code, which is the
@@ -658,11 +670,18 @@ cage_sidecar_start() {
   cage_err "starting docker sidecar ($CAGE_SIDECAR_NAME)…"
   local extra=() run_extra=() slice
   [ -n "$CAGE_SIDECAR_STORAGE" ] && extra+=("--storage-driver=$CAGE_SIDECAR_STORAGE")
+  local dir
+  for dir in "${CAGE_SIDECAR_SHARED_DIRS[@]}"; do
+    # 0700 matches what Claude Code creates for its scratchpad root.
+    mkdir -p -m 700 "$dir" 2>/dev/null || true
+    run_extra+=(-v "$dir:$dir:rw")
+  done
   # testcontainers' databases count toward the same combined cap as the sessions.
   slice="$(_cage_slice)" && run_extra+=(--cgroup-parent="$slice")
 
-  # Rootless dind under rootless Podman (DESIGN §8). Mounts ONLY ~/code so a
-  # docker bind-mount escape is bounded to the same surface as the cage.
+  # Rootless dind under rootless Podman (DESIGN §8). Mounts ONLY
+  # CAGE_SIDECAR_SHARED_DIRS so a docker bind-mount escape is bounded to the same
+  # surface as the cage.
   #
   # --privileged is REQUIRED here and, under ROOTLESS Podman, does NOT grant
   # root-on-host: the container still runs entirely within the user's namespace
@@ -706,7 +725,6 @@ cage_sidecar_start() {
     -v "$CAGE_ETC/sidecar-subid:/etc/subgid:ro" \
     -v "$CAGE_VOL_SOCK:/sock:U" \
     -v "$CAGE_VOL_DOCKER_DATA:/home/rootless/.local/share/docker" \
-    -v "$HOME/code:$HOME/code:rw" \
     "$CAGE_SIDECAR_IMAGE" \
     --host="unix://$CAGE_SOCK" "${extra[@]}" \
     >/dev/null; then
@@ -723,13 +741,28 @@ cage_sidecar_start() {
   return 1
 }
 
+# A sidecar created before a dir joined CAGE_SIDECAR_SHARED_DIRS lacks its mount,
+# and one whose host dir was deleted + recreated (e.g. /tmp/claude-<uid>) still
+# holds the old, now-detached dir. Either way docker would silently see an empty
+# dir, so compare inodes with the host.
+_cage_sidecar_mounts_current() {
+  local dir
+  for dir in "${CAGE_SIDECAR_SHARED_DIRS[@]}"; do
+    [ -d "$dir" ] || return 1
+    [ "$(podman exec "$CAGE_SIDECAR_NAME" stat -c %i "$dir" 2>/dev/null)" = "$(stat -c %i "$dir")" ] ||
+      return 1
+  done
+}
+
 cage_sidecar_ensure() {
   if podman container exists "$CAGE_SIDECAR_NAME"; then
     if [ "$(podman inspect -f '{{.State.Running}}' "$CAGE_SIDECAR_NAME" 2>/dev/null)" = "true" ] &&
       cage_sidecar_healthy; then
-      return 0
+      _cage_sidecar_mounts_current && return 0
+      cage_err "docker sidecar's shared dirs are missing or stale; recreating…"
+    else
+      cage_err "docker sidecar present but unhealthy; recreating…"
     fi
-    cage_err "docker sidecar present but unhealthy; recreating…"
     podman rm -f "$CAGE_SIDECAR_NAME" >/dev/null 2>&1 || true
   fi
   cage_sidecar_start
