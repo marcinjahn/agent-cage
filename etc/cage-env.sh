@@ -13,8 +13,7 @@
 # idempotency guard below so it's present even in nested shells that short-circuit
 # it. Deduped per session via a marker dir in the container-private
 # /run/user/1000 tmpfs (fresh on every --rm launch), so a repeatedly-missing tool
-# notifies once per session. NOT /tmp: that's bind-mounted from the host (shared
-# across sessions) so a marker there would only ever notify once, ever.
+# notifies once per session.
 command_not_found_handle() {
   local cmd="$1"
   # Only bare tool names are image candidates — skip paths and local scripts.

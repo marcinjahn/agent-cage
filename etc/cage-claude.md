@@ -10,7 +10,8 @@ from Claude Code's sandbox; disabling the sandbox won't help.
   `/tmp/foo`, …) resolves to a missing or empty dir in the daemon, even though it exists
   for you. `docker build` contexts and `docker cp` work from anywhere.
 - Most of the home directory is absent or read-only. Writable: `~/code`, `~/tmp`, `/tmp`
-  and a few tool caches.
+  and a few tool caches. Of `/tmp`, only `/tmp/claude-1000` is shared with the host; the
+  rest is private to this session and gone when it ends.
 - No root: `sudo`/`dnf` won't work. `npm i -g` works and persists; for anything else
   that's missing, tell the user instead of working around it.
 - Networking is the host's: ports you bind are host ports, shared with other sessions.

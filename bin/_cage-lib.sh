@@ -436,12 +436,15 @@ _cage_add_mounts() {
   _cage_bind rw "$HOME/.local/share/pnpm/store" "$CAGE_HOME/.local/share/pnpm/store"
   _cage_bind rw "$HOME/.cache/pnpm" "$CAGE_HOME/.cache/pnpm"
 
-  # Share /tmp with the host (rw, identical path) so ad-hoc files (e.g. this
-  # tool's own scratchpad) are reachable from both sides. The missing-tool
-  # notifier's dedup marker lives in the /run/user/1000 tmpfs instead of /tmp
-  # (see etc/cage-env.sh) precisely because /tmp is no longer container-private.
-  _cage_bind rw "/tmp" "/tmp"
-  # Same for the user's personal scratch dir. mkdir so a fresh host still gets it
+  # Share only Claude Code's scratchpad root with the host (rw, identical path),
+  # not all of /tmp: the host's /tmp holds other programs' sockets (X11, Chrome's
+  # SingletonSocket, …) that the cage must not reach. The cage's own /tmp is the
+  # image's (mode 1777, in the --rm container layer, so private and fresh per
+  # session); this bind just lands on top of it. mkdir with 0700, matching what
+  # Claude Code creates, so the bind isn't skipped on a fresh host.
+  mkdir -p -m 700 "/tmp/claude-$(id -u)" 2>/dev/null || true
+  _cage_bind rw "/tmp/claude-$(id -u)" "/tmp/claude-$(id -u)"
+  # And the user's personal scratch dir. mkdir so a fresh host still gets it
   # (mirrors the pnpm store below).
   mkdir -p "$HOME/tmp" 2>/dev/null || true
   _cage_bind rw "$HOME/tmp" "$CAGE_HOME/tmp"

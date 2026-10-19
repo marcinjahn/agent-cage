@@ -50,10 +50,12 @@ notifications, port access, testcontainers).
 
 - `~/code` (rw) and agent state in `~/.claude` (rw, _except_ the host-executed scripts —
   see below). The work and the agent state.
-- `/tmp` and `~/tmp` (rw, shared with the host at the identical path) — scratch space,
-  deliberately not isolated so ad-hoc files pass between host and cage. Anything another
-  host process drops there (sockets, scratch files) is readable/writable by the cage, and
-  vice versa.
+- `~/tmp` and `/tmp/claude-1000` (Claude Code's scratchpads) (rw, shared with the host at
+  the identical path) — scratch space, deliberately not isolated so ad-hoc files pass
+  between host and cage. Anything another host process drops there is readable/writable by
+  the cage, and vice versa. The rest of the host's `/tmp` (X11 sockets, browser singleton
+  sockets, other programs' scratch files) is **not** visible: the cage's `/tmp` is its own
+  (§7).
 - Host network services — `--network host` is used (see §10). The cage shares the host
   network namespace.
 - Anything reachable through the **docker sidecar**, bounded to `~/code`, `~/tmp` and
@@ -82,28 +84,28 @@ root-on-host and defeats the cage.
 
 ## 3. Decisions summary
 
-| Area                      | Decision                                                                                      | Rationale                                                                                                                                          |
-| ------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Outer runtime             | **Rootless Podman**                                                                           | Runs as uid 1000; breakout is unprivileged. `--dangerously-skip-permissions` refuses to run as root anyway.                                        |
-| Session model             | **Ephemeral, parallel containers** (`podman run --rm`) from one image                         | User runs multiple cage sessions in parallel; no fragile long-lived container.                                                                     |
-| Durable toolchain         | **Baked into a base image**, rebuilt **daily by GitHub Actions**                              | Reproducible; auto-tracks latest Claude + tools.                                                                                                   |
-| Ad-hoc installs / caches  | **Shared named volumes**                                                                      | Persist across sessions and image rebuilds.                                                                                                        |
-| Host protection           | **Strict write-allowlist**                                                                    | Only `~/code`, `~/.claude`, and cage volumes are writable.                                                                                         |
-| Toolchains                | **Fresh install in image** (no host-binary reuse)                                             | User's host setup (brew/asdf) is irrelevant; only the tools matter.                                                                                |
-| Node versions             | **`fnm`** + per-project `.nvmrc`, versions in a shared volume                                 | Multiple node versions, auto-selected.                                                                                                             |
-| nvim / formatting         | **Mount the user's real `~/.config/nvim` + `~/.local/share/nvim` read-only**                  | Formatting hook must behave exactly as on host. Cannot be baked (host-specific, GitHub can't see it).                                              |
-| Networking                | **`--network host`** for all sessions                                                         | Bidirectional port-forwarding "just works".                                                                                                        |
-| Docker for testcontainers | **Single rootless-docker sidecar**, wrapper-managed, bounded to `~/code` + scratch dirs       | testcontainers needs real Docker; sidecar is reliable (vs. fragile nested DinD) and keeps the escape surface within the cage's own rw mounts.      |
+| Area                      | Decision                                                                                                                     | Rationale                                                                                                                                                                                                                                     |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Outer runtime             | **Rootless Podman**                                                                                                          | Runs as uid 1000; breakout is unprivileged. `--dangerously-skip-permissions` refuses to run as root anyway.                                                                                                                                   |
+| Session model             | **Ephemeral, parallel containers** (`podman run --rm`) from one image                                                        | User runs multiple cage sessions in parallel; no fragile long-lived container.                                                                                                                                                                |
+| Durable toolchain         | **Baked into a base image**, rebuilt **daily by GitHub Actions**                                                             | Reproducible; auto-tracks latest Claude + tools.                                                                                                                                                                                              |
+| Ad-hoc installs / caches  | **Shared named volumes**                                                                                                     | Persist across sessions and image rebuilds.                                                                                                                                                                                                   |
+| Host protection           | **Strict write-allowlist**                                                                                                   | Only `~/code`, `~/.claude`, and cage volumes are writable.                                                                                                                                                                                    |
+| Toolchains                | **Fresh install in image** (no host-binary reuse)                                                                            | User's host setup (brew/asdf) is irrelevant; only the tools matter.                                                                                                                                                                           |
+| Node versions             | **`fnm`** + per-project `.nvmrc`, versions in a shared volume                                                                | Multiple node versions, auto-selected.                                                                                                                                                                                                        |
+| nvim / formatting         | **Mount the user's real `~/.config/nvim` + `~/.local/share/nvim` read-only**                                                 | Formatting hook must behave exactly as on host. Cannot be baked (host-specific, GitHub can't see it).                                                                                                                                         |
+| Networking                | **`--network host`** for all sessions                                                                                        | Bidirectional port-forwarding "just works".                                                                                                                                                                                                   |
+| Docker for testcontainers | **Single rootless-docker sidecar**, wrapper-managed, bounded to `~/code` + scratch dirs                                      | testcontainers needs real Docker; sidecar is reliable (vs. fragile nested DinD) and keeps the escape surface within the cage's own rw mounts.                                                                                                 |
 | Resource limits           | **`--memory=8g --cpus=6 --pids-limit=16384`** per session, all inside `agentcage.slice` (`MemoryHigh=22G`, `CPUQuota=1200%`) | Per-session caps are ceilings, not reservations, so one busy session builds fast while idle ones cost nothing; the shared slice keeps many busy sessions + the sidecar from swamping the host. `limited` is a no-op in-cage via `AGENT_CAGE`. |
-| Claude version            | Image ships latest; host and cage share `~/.claude`                                           | Daily rebuild keeps them aligned.                                                                                                                  |
-| Host-executed scripts     | **`~/.claude/hooks`, settings, statusline mounted read-only** (within rw `~/.claude`)         | Prevents the cage from poisoning code that later runs on the host (see §2/§7).                                                                     |
-| Secret exfiltration       | **Accepted for now** (open egress + creds mounted)                                            | Cage protects against destruction, not exfiltration; revisit later (§2/§10).                                                                       |
-| Version control           | **Commit yes; push via `gh`/https only** (git/jj identity mounted ro, no SSH keys)            | Safe default: agent can't push to arbitrary ssh remotes; GitHub https push works via mounted `gh` auth (§7).                                       |
-| Extra toolchains          | **dotnet + node only; Dockerfile structured for one-block extension**                         | User's primary stack; adding Rust/Python/Go later must be a single documented edit (§5).                                                           |
-| Kubernetes access         | **Opt-in (`--kube`) per-launch, minted read-only ServiceAccount tokens, config outside repo** | RBAC is server-side, so ro-mounting the real kubeconfig wouldn't restrict writes; per-launch minting avoids an always-on cluster credential (§7a). |
-| Timezone                  | **`TZ=Europe/Warsaw` (CET)** in image/env                                                     | Timestamps and time-relative reasoning match the user's locale.                                                                                    |
-| In-cage auto-update       | **Disabled** (`DISABLE_AUTOUPDATER=1`)                                                        | Cage Claude version is owned by the image; prevents writes/drift mid-session.                                                                      |
-| SELinux                   | **`--security-opt label=disable`** (no `:z`/`:Z` relabel)                                     | `:Z` would relabel all ~75 GB of `~/code` and mutate host labels; disable labeling instead.                                                        |
+| Claude version            | Image ships latest; host and cage share `~/.claude`                                                                          | Daily rebuild keeps them aligned.                                                                                                                                                                                                             |
+| Host-executed scripts     | **`~/.claude/hooks`, settings, statusline mounted read-only** (within rw `~/.claude`)                                        | Prevents the cage from poisoning code that later runs on the host (see §2/§7).                                                                                                                                                                |
+| Secret exfiltration       | **Accepted for now** (open egress + creds mounted)                                                                           | Cage protects against destruction, not exfiltration; revisit later (§2/§10).                                                                                                                                                                  |
+| Version control           | **Commit yes; push via `gh`/https only** (git/jj identity mounted ro, no SSH keys)                                           | Safe default: agent can't push to arbitrary ssh remotes; GitHub https push works via mounted `gh` auth (§7).                                                                                                                                  |
+| Extra toolchains          | **dotnet + node only; Dockerfile structured for one-block extension**                                                        | User's primary stack; adding Rust/Python/Go later must be a single documented edit (§5).                                                                                                                                                      |
+| Kubernetes access         | **Opt-in (`--kube`) per-launch, minted read-only ServiceAccount tokens, config outside repo**                                | RBAC is server-side, so ro-mounting the real kubeconfig wouldn't restrict writes; per-launch minting avoids an always-on cluster credential (§7a).                                                                                            |
+| Timezone                  | **`TZ=Europe/Warsaw` (CET)** in image/env                                                                                    | Timestamps and time-relative reasoning match the user's locale.                                                                                                                                                                               |
+| In-cage auto-update       | **Disabled** (`DISABLE_AUTOUPDATER=1`)                                                                                       | Cage Claude version is owned by the image; prevents writes/drift mid-session.                                                                                                                                                                 |
+| SELinux                   | **`--security-opt label=disable`** (no `:z`/`:Z` relabel)                                                                    | `:Z` would relabel all ~75 GB of `~/code` and mutate host labels; disable labeling instead.                                                                                                                                                   |
 
 ---
 
@@ -296,40 +298,48 @@ Key points:
 
 ### Bind mounts (host → container, identical paths)
 
-| Host path                         | Container path      | Mode   | Purpose                                                   |
-| --------------------------------- | ------------------- | ------ | --------------------------------------------------------- |
-| `/tmp`                            | same                | **rw** | shared scratch space between host and cage                |
-| `~/tmp`                           | same                | **rw** | shared personal scratch dir between host and cage         |
-| `~/code`                          | `/home/mnj/code`    | **rw** | the work                                                  |
-| `~/.claude`                       | `/home/mnj/.claude` | **rw** | sessions, history, creds — but with ro overlays below     |
-| `~/.claude/hooks`                 | same                | **ro** | host-executed; ro prevents host-escape poisoning (§2)     |
-| `~/.claude/settings.json`         | same (file)         | **ro** | host-executed hook/statusline config; ro (§2)             |
-| `~/.claude/settings.local.json`   | same (file)         | **ro** | as above                                                  |
-| `~/.claude/statusline-command.sh` | same (file)         | **ro** | host-executed; ro (§2)                                    |
-| `~/.claude.json`                  | same                | **rw** | MCP + project config                                      |
-| `~/.gitconfig`                    | same (file)         | ro     | commit author identity                                    |
-| `~/.gitconfig-code`               | same (file)         | ro     | `includeIf` for `~/code/` repos (excludesfile override)   |
-| `~/.gitignore`                    | same (file)         | ro     | global excludesfile (`~/.gitconfig`)                      |
-| `~/.gitignore-code`               | same (file)         | ro     | global excludesfile for `~/code/` repos                   |
-| `~/.config/jj`                    | same                | **rw** | jj per-repo trust cache (`repos/`) — user-owned parent    |
-| `~/.config/jj/config.toml`        | same (file)         | ro     | jj identity (nested ro over the rw dir above)             |
-| `~/scripts`                       | same                | ro     | skills' scripts; provides `limited` (put on PATH)         |
-| `~/.config/nvim`                  | same                | ro     | formatting hook — exact nvim config (§9)                  |
-| `~/.local/share/nvim`             | same                | ro     | nvim plugins + mason-installed formatters (§9)            |
-| `~/.local/share/puff/projects`    | same                | ro     | resolves all puff symlinks under `~/code`                 |
-| `~/.docker/config.json`           | same (file)         | ro     | registry auth (GCR rewritten to a baked token — below)    |
-| `~/.npmrc`                        | same (file)         | ro     | npm auth                                                  |
-| `~/.config/NuGet`                 | same                | ro     | nuget sources/auth                                        |
-| `~/.microsoft/usersecrets`        | same                | ro     | .NET development user secrets                             |
-| `~/.nuget/packages`               | same                | **rw** | shared restore cache — reuse host-downloaded packages     |
-| `~/.local/share/pnpm/store`       | same                | **rw** | shared pnpm store — same fs as `~/code` so hardlinks work |
-| `~/.cache/pnpm`                   | same                | **rw** | pnpm metadata cache                                       |
-| `~/.config/acli`                  | same                | ro     | acli auth                                                 |
-| `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note)    |
-| `~/.context7/credentials.json`    | same (file)         | ro     | Context7 CLI (`ctx7`) OAuth tokens                        |
-| `<repo>/etc/cage-claude.md`       | `/etc/claude-code/CLAUDE.md` | ro | cage-only agent instructions (managed CLAUDE.md, §8) |
-| `$XDG_RUNTIME_DIR/agent-cage/dbus-<pid>.sock` | `/run/cage/bus` | ro | filtered session bus, Notifications only (§9; outside the runtime tmpfs) |
-| `$XDG_RUNTIME_DIR/agent-cage/clip-<pid>.sock` | `/run/cage/clipboard.sock` | ro | image-only clipboard broker (§9) |
+| Host path                                     | Container path               | Mode   | Purpose                                                                  |
+| --------------------------------------------- | ---------------------------- | ------ | ------------------------------------------------------------------------ |
+| `/tmp/claude-1000`                            | same                         | **rw** | Claude Code's scratchpads, shared between host and cage                  |
+| `~/tmp`                                       | same                         | **rw** | shared personal scratch dir between host and cage                        |
+| `~/code`                                      | `/home/mnj/code`             | **rw** | the work                                                                 |
+| `~/.claude`                                   | `/home/mnj/.claude`          | **rw** | sessions, history, creds — but with ro overlays below                    |
+| `~/.claude/hooks`                             | same                         | **ro** | host-executed; ro prevents host-escape poisoning (§2)                    |
+| `~/.claude/settings.json`                     | same (file)                  | **ro** | host-executed hook/statusline config; ro (§2)                            |
+| `~/.claude/settings.local.json`               | same (file)                  | **ro** | as above                                                                 |
+| `~/.claude/statusline-command.sh`             | same (file)                  | **ro** | host-executed; ro (§2)                                                   |
+| `~/.claude.json`                              | same                         | **rw** | MCP + project config                                                     |
+| `~/.gitconfig`                                | same (file)                  | ro     | commit author identity                                                   |
+| `~/.gitconfig-code`                           | same (file)                  | ro     | `includeIf` for `~/code/` repos (excludesfile override)                  |
+| `~/.gitignore`                                | same (file)                  | ro     | global excludesfile (`~/.gitconfig`)                                     |
+| `~/.gitignore-code`                           | same (file)                  | ro     | global excludesfile for `~/code/` repos                                  |
+| `~/.config/jj`                                | same                         | **rw** | jj per-repo trust cache (`repos/`) — user-owned parent                   |
+| `~/.config/jj/config.toml`                    | same (file)                  | ro     | jj identity (nested ro over the rw dir above)                            |
+| `~/scripts`                                   | same                         | ro     | skills' scripts; provides `limited` (put on PATH)                        |
+| `~/.config/nvim`                              | same                         | ro     | formatting hook — exact nvim config (§9)                                 |
+| `~/.local/share/nvim`                         | same                         | ro     | nvim plugins + mason-installed formatters (§9)                           |
+| `~/.local/share/puff/projects`                | same                         | ro     | resolves all puff symlinks under `~/code`                                |
+| `~/.docker/config.json`                       | same (file)                  | ro     | registry auth (GCR rewritten to a baked token — below)                   |
+| `~/.npmrc`                                    | same (file)                  | ro     | npm auth                                                                 |
+| `~/.config/NuGet`                             | same                         | ro     | nuget sources/auth                                                       |
+| `~/.microsoft/usersecrets`                    | same                         | ro     | .NET development user secrets                                            |
+| `~/.nuget/packages`                           | same                         | **rw** | shared restore cache — reuse host-downloaded packages                    |
+| `~/.local/share/pnpm/store`                   | same                         | **rw** | shared pnpm store — same fs as `~/code` so hardlinks work                |
+| `~/.cache/pnpm`                               | same                         | **rw** | pnpm metadata cache                                                      |
+| `~/.config/acli`                              | same                         | ro     | acli auth                                                                |
+| `~/.config/gh`                                | same                         | ro     | gh auth (also enables GitHub https push — §7 VCS note)                   |
+| `~/.context7/credentials.json`                | same (file)                  | ro     | Context7 CLI (`ctx7`) OAuth tokens                                       |
+| `<repo>/etc/cage-claude.md`                   | `/etc/claude-code/CLAUDE.md` | ro     | cage-only agent instructions (managed CLAUDE.md, §8)                     |
+| `$XDG_RUNTIME_DIR/agent-cage/dbus-<pid>.sock` | `/run/cage/bus`              | ro     | filtered session bus, Notifications only (§9; outside the runtime tmpfs) |
+| `$XDG_RUNTIME_DIR/agent-cage/clip-<pid>.sock` | `/run/cage/clipboard.sock`   | ro     | image-only clipboard broker (§9)                                         |
+
+**`/tmp`:** only `/tmp/claude-<uid>` is shared (the wrapper creates it `0700` first, so
+the bind is never skipped); the docker sidecar shares the same dir (§8). The rest of the
+cage's `/tmp` is the image's own directory (root-owned, mode 1777) in the `--rm`
+container's writable layer: private to the session, discarded with it, and backed by disk
+rather than a memory-charged tmpfs. The scratchpad bind is nested on top of it. Sharing all
+of the host's `/tmp` used to expose its X11 socket directory, Chrome's `SingletonSocket`
+(which can make the host browser open URLs) and other programs' sockets.
 
 **SELinux:** use `--security-opt label=disable` (§6) rather than `:z`/`:Z` mount flags —
 `:Z` would relabel the entire ~75 GB `~/code` tree and mutate host labels. Do not relabel.
@@ -413,17 +423,17 @@ config, never mount the ambient credential). Concretely:
 
 ### Named volumes (persist across sessions and image rebuilds)
 
-| Volume             | Mounted at                 | Purpose                                         |
-| ------------------ | -------------------------- | ----------------------------------------------- |
-| fnm node versions  | `$FNM_DIR`                 | installed node versions, shared across sessions |
-| npm cache          | `~/.npm`                   | npm cache                                       |
-| cage global prefix | e.g. `/opt/cage` (on PATH) | ad-hoc `npm i -g` / `dotnet tool install -g`    |
-| nvim state         | `~/.local/state/nvim`      | writable nvim runtime state                     |
-| nvim cache         | `~/.cache/nvim`            | compiled-Lua cache, so headless formatting starts warm |
-| pip cache          | `~/.cache/pip`             | pip download cache                              |
-| dotnet home        | `~/.dotnet`                | first-run state, workload manifests             |
-| NuGet HTTP cache   | `~/.local/share/NuGet`     | feed metadata, so restores don't re-query feeds |
-| cargo registry/git | `~/.cargo/registry`, `~/.cargo/git` | crate index + sources                  |
+| Volume             | Mounted at                          | Purpose                                                |
+| ------------------ | ----------------------------------- | ------------------------------------------------------ |
+| fnm node versions  | `$FNM_DIR`                          | installed node versions, shared across sessions        |
+| npm cache          | `~/.npm`                            | npm cache                                              |
+| cage global prefix | e.g. `/opt/cage` (on PATH)          | ad-hoc `npm i -g` / `dotnet tool install -g`           |
+| nvim state         | `~/.local/state/nvim`               | writable nvim runtime state                            |
+| nvim cache         | `~/.cache/nvim`                     | compiled-Lua cache, so headless formatting starts warm |
+| pip cache          | `~/.cache/pip`                      | pip download cache                                     |
+| dotnet home        | `~/.dotnet`                         | first-run state, workload manifests                    |
+| NuGet HTTP cache   | `~/.local/share/NuGet`              | feed metadata, so restores don't re-query feeds        |
+| cargo registry/git | `~/.cargo/registry`, `~/.cargo/git` | crate index + sources                                  |
 
 These caches are volumes rather than binds of the host's own caches: they hold code that
 host builds would later run, so a shared rw bind would let the cage plant code outside it.
@@ -550,8 +560,7 @@ fires only on an actual exec attempt, not on `command -v`/`type` probes, so it t
 use rather than availability checks; it still returns 127 so normal "command not found"
 semantics are preserved. Only bare tool names notify (paths and local scripts are skipped),
 and a marker dir in the container-private `/run/user/1000` tmpfs (fresh each `--rm` launch)
-dedupes to one notification per tool per session — not `/tmp`, which is bind-mounted from the
-host (§7) and so persists across sessions. The handler is defined **before** the file's
+dedupes to one notification per tool per session. The handler is defined **before** the file's
 idempotency guard so it's present even in nested shells that short-circuit it.
 
 ### Notifications (filtered session bus)
