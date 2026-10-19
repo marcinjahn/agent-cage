@@ -281,6 +281,10 @@ RUN ln -sf /etc/cage/env.sh /etc/profile.d/cage.sh
 # (bin/_cage-clip-broker) instead of giving the cage the Wayland socket.
 COPY --chown=root:root --chmod=755 etc/wl-paste /usr/local/bin/wl-paste
 
+# On-demand nested display for headed browsers: asks the host broker
+# (bin/_cage-display-broker) to start a Weston window on the user's desktop.
+COPY --chown=root:root --chmod=755 etc/cage-display /usr/local/bin/cage-display
+
 ENV FNM_DIR=/opt/fnm \
     NPM_CONFIG_PREFIX=/opt/cage \
     TZ=Europe/Warsaw \

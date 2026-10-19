@@ -57,7 +57,10 @@ notifications, port access, testcontainers).
   sockets, other programs' scratch files) is **not** visible: the cage's `/tmp` is its own
   (§7).
 - Host network services — `--network host` is used (see §10). The cage shares the host
-  network namespace.
+  network namespace, and with it the host's **abstract** unix sockets (see the open risk
+  below).
+- A nested Weston window on the desktop, only once the agent asks for one
+  (`cage-display start`, §9) — what the user types into it is visible to the cage.
 - Anything reachable through the **docker sidecar**, bounded to `~/code`, `~/tmp` and
   `/tmp/claude-1000` (see §8) — all of which the cage can already write.
 
@@ -67,6 +70,18 @@ notifications, port access, testcontainers).
 **read-only**. These run **on the host** (when you use host Claude), so if the cage could
 rewrite them, an injected prompt could plant code that later executes _outside_ the cage
 as you. Read-only overlays close that door. (See §7.)
+
+**Open risk — host X server via its abstract socket (not mitigated yet):** the host's
+Xwayland (started by niri through `xwayland-satellite`) listens on the abstract socket
+`@/tmp/.X11-unix/X0` as well as the filesystem one. Abstract sockets belong to the network
+namespace, so `--network host` makes it reachable from the cage even though the host's
+`/tmp/.X11-unix` is no longer mounted (§7), and the X server admits same-uid clients
+(`SI:localuser`). Through it the cage could read the X clipboard/selections, inject
+keystrokes into and capture any Xwayland app (Steam, Electron apps running under X, …);
+native Wayland apps are not affected. Fix options: let a systemd user socket own a
+filesystem-only X socket (`xwayland-satellite :0 -listenfd`, niri's integration off), or
+give the cage its own network namespace (pasta), which also prepares the egress allowlist
+(§10).
 
 **Accepted risk — secret exfiltration (not mitigated for now):** the cage mounts
 credentials (docker/npm/nuget/.NET user secrets/acli/gh, and the Claude token in
@@ -332,6 +347,8 @@ Key points:
 | `<repo>/etc/cage-claude.md`                   | `/etc/claude-code/CLAUDE.md` | ro     | cage-only agent instructions (managed CLAUDE.md, §8)                     |
 | `$XDG_RUNTIME_DIR/agent-cage/dbus-<pid>.sock` | `/run/cage/bus`              | ro     | filtered session bus, Notifications only (§9; outside the runtime tmpfs) |
 | `$XDG_RUNTIME_DIR/agent-cage/clip-<pid>.sock` | `/run/cage/clipboard.sock`   | ro     | image-only clipboard broker (§9)                                         |
+| `$XDG_RUNTIME_DIR/agent-cage/display-<pid>.sock` | `/run/cage/display.sock`  | ro     | on-demand nested display broker (§9; only when `weston` is installed)   |
+| `$XDG_RUNTIME_DIR/agent-cage/display-<pid>/`  | `/run/cage/display`          | ro     | nested Weston's runtime dir: holds only its `wayland-0` socket (§9)     |
 
 **`/tmp`:** only `/tmp/claude-<uid>` is shared (the wrapper creates it `0700` first, so
 the bind is never skipped); the docker sidecar shares the same dir (§8). The rest of the
@@ -610,6 +627,55 @@ plus a general compositor connection. Instead:
 Residual exposure: anything in the cage can still read a clipboard **image** at any time
 during the session (not only on Ctrl+V) — e.g. a screenshot you copied for something else.
 
+### Headed browser display (nested Weston, on demand)
+
+Some flows need the user to see and use the browser the agent drives (an SSO sign-in, a
+captcha). Handing the cage the host Wayland or X11 socket would expose the clipboard, other
+windows' input and more, so the browser gets its own compositor instead: a nested **Weston**
+running as one window on the host desktop.
+
+- **Broker:** when `weston` is on the host PATH, the host runs a Wayland session
+  (`WAYLAND_DISPLAY` + `XDG_RUNTIME_DIR`), and `CAGE_DISPLAY` isn't `0`, the wrapper starts a
+  per-session `bin/_cage-display-broker` (python3), mounted at `/run/cage/display.sock`. It
+  idles until asked; no window exists until the agent runs `cage-display start`
+  (`etc/cage-display` → `/usr/local/bin`). Requests are bare `START`, `STOP`, `STATUS` —
+  nothing from the cage reaches the command line, which is fixed:
+  `weston --no-config --backend=wayland --shell=kiosk-shell.so --socket=wayland-0
+  --width=1280 --height=900 --idle-time=0`.
+- **Socket placement:** Weston creates its socket in `$XDG_RUNTIME_DIR`, so the broker runs
+  it with `XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR/agent-cage/display-<pid>/` (0700, created by the
+  wrapper) and reaches the host compositor by absolute `WAYLAND_DISPLAY` path; `DISPLAY` is
+  dropped. That dir, bound read-only at `/run/cage/display`, is the only display endpoint
+  the cage sees — Weston's `wayland-0` and its lock, nothing of the host compositor. Both
+  binds sit outside the `/run/user/1000` tmpfs, and nothing falls back to `/tmp`.
+- **Why Weston:** its Wayland backend binds only `wl_compositor`, `xdg_wm_base`, `wl_seat`,
+  `wl_output` and `wl_shm` from the host, never the data-device protocol, so no clipboard or
+  drag-and-drop crosses either way. `--no-config` keeps Xwayland off and leaves no config
+  file the cage could edit to make Weston launch programs. The kiosk shell has no panel or
+  launcher, and Weston has no command socket. Nested niri/sway were rejected: their IPC
+  sockets (`niri msg action spawn`, `swaymsg exec`) run arbitrary host commands.
+- **Lifecycle:** `START` reuses a running Weston, or clears stale files and starts a new one,
+  replying once the socket exists (5 s timeout; a startup failure returns Weston's last log
+  line). `STOP` terminates it (kill after 3 s). Closing the window just ends Weston; the
+  next `START` brings it back. When the wrapper's pid goes away, the broker stops Weston and
+  removes the dir, its socket and its log; Weston also gets `PR_SET_PDEATHSIG`, so it never
+  outlives the broker.
+- **`WAYLAND_DISPLAY` is not set for the container.** Claude Code reads it to choose
+  between OSC 52 and native clipboard tools and to decide whether it can open a browser for
+  OAuth, so a global value would change its behaviour (and point at a socket that usually
+  doesn't exist). The agent sets it only on the browser command:
+  `WAYLAND_DISPLAY=/run/cage/display/wayland-0 playwright-cli open --headed --browser chrome <url>`.
+  `open` always starts a fresh playwright-cli daemon with the caller's environment, and
+  Chrome picks the Wayland backend when `WAYLAND_DISPLAY` is set; Firefox also needs
+  `MOZ_ENABLE_WAYLAND=1`.
+- **Profiles:** playwright-cli's default profile is in-memory and dies with the browser;
+  `etc/cage-claude.md` tells the agent not to use `--persistent`/`--profile` here, so SSO
+  cookies don't outlive the session.
+
+Residual exposure: whatever the user types or shows in the nested window (credentials
+included) is visible to the cage, which drives the browser anyway. The cage can pop up a
+window whenever it likes during the session, and it can't do more than that.
+
 ---
 
 ## 10. Networking
@@ -697,6 +763,16 @@ Implement, then verify each of these empirically:
       connection are denied; `/run/user/1000/bus` doesn't exist.
 - [ ] **Image paste** (Ctrl+V) works in `claude-cage`; `wl-paste` in the cage returns
       nothing for copied text.
+- [ ] **Private `/tmp`**: in the cage `/tmp` is mode 1777 and writable, `/tmp/claude-1000`
+      is the host's (files appear on both sides), and the host's `/tmp/.X11-unix` and other
+      host `/tmp` entries are absent.
+- [ ] **Headed browser**: `cage-display start`, then
+      `WAYLAND_DISPLAY=/run/cage/display/wayland-0 playwright-cli open --headed --browser chrome https://accounts.google.com`
+      shows the page in a Weston window (repeat with Firefox + `MOZ_ENABLE_WAYLAND=1`); text
+      copied on the host can't be pasted into it and vice versa; `ls /run/cage/display`
+      shows only `wayland-0` and its lock; ending the session removes Weston and the dir;
+      without `weston` on the host, `cage-display start` explains how to install it. Check
+      the flags against `weston --help` on the host Weston version.
 - [ ] **Sessions** created in the cage are visible/resumable on the host and vice-versa.
 - [ ] **Hook/settings ro overlay** holds: cage cannot write `~/.claude/hooks`,
       `settings.json`, `settings.local.json`, `statusline-command.sh` (verify writes fail).

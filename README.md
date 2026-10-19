@@ -38,6 +38,10 @@ and rationale.
 - **Podman** (rootless). `docker` is not required on the host.
 - **`xdg-dbus-proxy`** (Fedora package of the same name) for desktop notifications; without
   it the cage starts with notifications disabled.
+- Optional: **`weston`** (`sudo dnf install weston`) for headed browsers. With it installed
+  and a Wayland desktop session, the agent can run `cage-display start` to open a nested
+  Weston window on your desktop and show a browser in it (e.g. for an SSO sign-in you
+  complete yourself). Without it, `cage-display` says so and everything else works.
 - The base image is pulled from `ghcr.io/marcinjahn/agent-cage:latest`, rebuilt daily by
   GitHub Actions.
 
@@ -154,6 +158,7 @@ being edited, not what `kubectl` could do against the API. Instead:
 | `CAGE_NO_PULL`         | `0`                                    | `1` skips the registry check and runs the cached image as-is (`--no-update`)     |
 | `CAGE_KUBE_TOKEN_TTL`  | `1h`                                   | validity of the minted read-only kubectl tokens (`--kube`)                       |
 | `CAGE_SIDECAR_STORAGE` | _(unset)_                              | set to `vfs` if fuse-overlayfs is absent                                         |
+| `CAGE_DISPLAY`         | `1`                                    | `0` gives sessions no display broker, so `cage-display` can't open a window      |
 
 ## Notes & limitations
 
@@ -170,6 +175,9 @@ being edited, not what `kubectl` could do against the API. Instead:
   same path. If that dir is otherwise mounted read-only (e.g. `~/.config/nvim`), the
   read-write cwd mount takes precedence. The docker sidecar still only sees `~/code`, `~/tmp`
   and `/tmp/claude-1000`, so testcontainers bind-mounting an ad-hoc cwd won't reach it. (`DESIGN.md` §6/§8)
+- **Headed browsers:** the nested Weston window shares no clipboard with your desktop, so
+  type credentials into it directly. It starts only when the agent asks for it and closes
+  with the session; the browser profile is a fresh, throwaway one each time. (`DESIGN.md` §9)
 - **Adding a language** (Rust/Python/Go/…): add one `RUN` block in the clearly-labelled
   `--- extra toolchains (add here) ---` section of the `Dockerfile`; the daily rebuild
   picks it up.

@@ -17,3 +17,21 @@ from Claude Code's sandbox; disabling the sandbox won't help.
 - Networking is the host's: ports you bind are host ports, shared with other sessions.
   Ports below 1024 can't be bound. Host and other sessions' processes are invisible, so
   if a port is busy, pick another one instead of looking for its owner.
+
+## Headed browser (e.g. an SSO sign-in the user completes)
+
+Browsers run headless by default. When the user has to see or use the browser (sign in,
+solve a captcha), open it in a nested display window on their desktop:
+
+1. `cage-display start` (if it says there's no display broker, tell the user what it
+   printed and stop).
+2. `WAYLAND_DISPLAY=/run/cage/display/wayland-0 playwright-cli open --headed --browser chrome <url>`
+   (for Firefox: `--browser firefox` plus `MOZ_ENABLE_WAYLAND=1`). Set `WAYLAND_DISPLAY`
+   only on this command, never globally: it changes how Claude Code and other tools behave.
+3. Ask the user to sign in in the window, wait for them to say they're done, then continue
+   with the usual `playwright-cli` commands.
+4. When finished: `playwright-cli close`, then `cage-display stop`.
+
+Don't use `--persistent` or `--profile` for these sessions: the default throwaway profile
+keeps the user's login cookies from outliving the session. The window has no clipboard
+link to the desktop, so the user types credentials directly into it.

@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+# On-demand nested display for headed browsers inside the cage (DESIGN §9).
+# Asks the session's host broker (bin/_cage-display-broker) to start or stop a
+# nested Weston window on the user's desktop; only that window's Wayland socket
+# is visible in the cage.
+
+import os
+import socket
+import sys
+import time
+
+SOCK = "/run/cage/display.sock"
+WAYLAND = "/run/cage/display/wayland-0"
+USAGE = "usage: cage-display start|stop|status"
+
+
+def request(line):
+    if not os.path.exists(SOCK):
+        sys.exit(
+            "cage-display: no display broker in this session: install weston on the host "
+            "(sudo dnf install weston) and relaunch the cage"
+        )
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(15)
+            s.connect(SOCK)
+            s.sendall(line.encode() + b"\n")
+            return s.makefile("rb").readline().decode(errors="replace").strip()
+    except OSError as e:
+        sys.exit(f"cage-display: display broker not responding: {e}")
+
+
+def main(argv):
+    if len(argv) != 1 or argv[0] not in ("start", "stop", "status"):
+        print(USAGE, file=sys.stderr)
+        return 2
+    cmd = argv[0]
+    reply = request(cmd.upper())
+    if reply.startswith("error"):
+        print(f"cage-display: {reply.removeprefix('error').strip()}", file=sys.stderr)
+        return 1
+
+    if cmd == "status":
+        print(f"{reply} ({WAYLAND})" if reply == "running" else reply)
+        return 0 if reply == "running" else 1
+    if cmd == "stop":
+        print("display stopped")
+        return 0
+
+    for _ in range(50):
+        if os.path.exists(WAYLAND):
+            break
+        time.sleep(0.1)
+    else:
+        print(f"cage-display: started, but {WAYLAND} isn't visible in the cage", file=sys.stderr)
+        return 1
+    print(f"display running at {WAYLAND}; open a headed browser on it with:")
+    print(f"  WAYLAND_DISPLAY={WAYLAND} playwright-cli open --headed --browser chrome <url>")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

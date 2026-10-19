@@ -84,6 +84,12 @@ CAGE_KUBE_ENABLED="${CAGE_KUBE_ENABLED:-0}"
 CAGE_KUBE_CONTEXTS_FILE="${CAGE_KUBE_CONTEXTS_FILE:-$CAGE_CONFIG_DIR/kube-contexts}"
 CAGE_KUBE_TOKEN_TTL="${CAGE_KUBE_TOKEN_TTL:-1h}"
 
+# Nested display for headed browsers (DESIGN §9). Each session gets an idle host
+# broker when weston is installed and the host runs a Wayland session; Weston
+# itself starts only when the agent runs `cage-display start`. Set to 0 to give
+# sessions no display broker at all.
+CAGE_DISPLAY="${CAGE_DISPLAY:-1}"
+
 # Name the wrapper was invoked as (claude-cage / cage), for use in messages.
 CAGE_INVOKED_AS="${CAGE_INVOKED_AS:-$(basename "$0")}"
 
@@ -550,6 +556,14 @@ _cage_add_mounts() {
   if clip_sock="$(_cage_clip_broker_start)"; then
     _cage_bind ro "$clip_sock" "/run/cage/clipboard.sock"
   fi
+
+  # On-demand nested Weston for headed browsers (DESIGN §9). The dir holds only
+  # the nested compositor's socket; ro so the cage can connect but not plant files.
+  local display_dir
+  if display_dir="$(_cage_display_broker_start)"; then
+    _cage_bind ro "$display_dir" "/run/cage/display"
+    _cage_bind ro "$display_dir.sock" "/run/cage/display.sock"
+  fi
 }
 
 # Start the session's clipboard broker, echoing its socket path. It watches $$ —
@@ -567,6 +581,32 @@ _cage_clip_broker_start() {
     sleep 0.1
   done
   cage_err "clipboard broker didn't start; image paste won't work in this session"
+  return 1
+}
+
+# Start the session's display broker, echoing the dir its nested Weston will put
+# its socket in (the broker's own socket is that path + .sock). Like the
+# clipboard broker it watches $$. No /tmp fallback: everything here must stay out
+# of anything the cage can see except the two binds.
+_cage_display_broker_start() {
+  [ "$CAGE_DISPLAY" = "0" ] && return 1
+  command -v python3 >/dev/null && command -v weston >/dev/null || return 1
+  [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ] && [ -n "${WAYLAND_DISPLAY:-}" ] || return 1
+  local host_wl="$WAYLAND_DISPLAY"
+  [[ "$host_wl" == /* ]] || host_wl="$XDG_RUNTIME_DIR/$host_wl"
+  [ -S "$host_wl" ] || return 1
+  local dir="$XDG_RUNTIME_DIR/agent-cage"
+  local ddir="$dir/display-$$"
+  mkdir -p -m 700 "$dir" && mkdir -p -m 700 "$ddir" || return 1
+  setsid -f python3 "$(dirname "${BASH_SOURCE[0]}")/_cage-display-broker" \
+    "$ddir.sock" "$$" "$ddir" "$host_wl" "$dir/display-$$.log" \
+    </dev/null >/dev/null 2>&1 || return 1
+  local _
+  for _ in $(seq 1 20); do
+    [ -S "$ddir.sock" ] && printf '%s' "$ddir" && return 0
+    sleep 0.1
+  done
+  cage_err "display broker didn't start; headed browsers won't work in this session"
   return 1
 }
 

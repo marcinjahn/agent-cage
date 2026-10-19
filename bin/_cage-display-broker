@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+# Host-side, on-demand nested display for a cage session (DESIGN §9).
+#
+# Usage: _cage-display-broker <socket-path> <pid-to-watch> <display-dir> <host-wayland-socket> [logfile]
+#
+# Idles until the cage's `cage-display start` asks for a display, then runs a
+# nested Weston (kiosk shell, no Xwayland) as a window on the host desktop, with
+# its Wayland socket in <display-dir> — the only thing of the host's display
+# stack the cage can reach. Weston's Wayland backend binds no data-device
+# protocol, so nothing crosses the clipboard either way. The command line is
+# fixed: nothing from the request reaches it. Exits (stopping Weston, removing
+# the socket, <display-dir> and the log) once the watched pid — the wrapper, which execs
+# into podman — is gone.
+#
+# Protocol: one request line per connection, one reply line, then close.
+#   START   -> "ok" once the nested socket exists, or "error <msg>"
+#   STOP    -> "ok"
+#   STATUS  -> "running" or "stopped"
+
+import ctypes
+import os
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+
+SOCKET_NAME = "wayland-0"
+WIDTH, HEIGHT = 1280, 900
+START_TIMEOUT_S = 5
+STOP_TIMEOUT_S = 3
+
+lock = threading.Lock()
+weston = None
+
+
+def _die_with_parent():
+    try:
+        ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+    except (OSError, AttributeError):
+        pass
+
+
+def _clear(display_dir):
+    try:
+        names = os.listdir(display_dir)
+    except FileNotFoundError:
+        return
+    for name in names:
+        try:
+            os.unlink(os.path.join(display_dir, name))
+        except OSError:
+            pass
+
+
+def _running():
+    return weston is not None and weston.poll() is None
+
+
+def _log_tail(log):
+    if not log:
+        return "weston exited"
+    try:
+        with open(log, "rb") as f:
+            lines = f.read().decode(errors="replace").strip().splitlines()
+        return f"weston exited: {lines[-1]}" if lines else "weston exited"
+    except OSError:
+        return "weston exited"
+
+
+def start(display_dir, host_wayland, log):
+    global weston
+    if _running():
+        return "ok"
+    _clear(display_dir)
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_SOCKET")}
+    # Weston creates its socket in XDG_RUNTIME_DIR, so point that at the dir the
+    # cage sees; the host compositor is then reached by absolute path instead.
+    env["XDG_RUNTIME_DIR"] = display_dir
+    env["WAYLAND_DISPLAY"] = host_wayland
+    cmd = [
+        "weston",
+        "--no-config",
+        "--backend=wayland",
+        "--shell=kiosk-shell.so",
+        f"--socket={SOCKET_NAME}",
+        f"--width={WIDTH}",
+        f"--height={HEIGHT}",
+        "--idle-time=0",
+    ]
+    out = open(log, "ab") if log else subprocess.DEVNULL
+    try:
+        weston = subprocess.Popen(
+            cmd,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=out,
+            stderr=out,
+            preexec_fn=_die_with_parent,
+        )
+    except OSError as e:
+        weston = None
+        return f"error can't run weston: {e.strerror}"
+    finally:
+        if log:
+            out.close()
+    sock = os.path.join(display_dir, SOCKET_NAME)
+    deadline = time.monotonic() + START_TIMEOUT_S
+    while time.monotonic() < deadline:
+        if weston.poll() is not None:
+            return f"error {_log_tail(log)}"
+        if os.path.exists(sock):
+            return "ok"
+        time.sleep(0.1)
+    stop()
+    return f"error weston didn't create its socket within {START_TIMEOUT_S}s"
+
+
+def stop():
+    global weston
+    if weston is None:
+        return "ok"
+    if weston.poll() is None:
+        weston.terminate()
+        try:
+            weston.wait(STOP_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            weston.kill()
+            weston.wait()
+    weston = None
+    return "ok"
+
+
+def handle(conn, display_dir, host_wayland, log):
+    with conn:
+        conn.settimeout(START_TIMEOUT_S + STOP_TIMEOUT_S + 2)
+        try:
+            request = conn.makefile("rb").readline(64).decode(errors="replace").split()
+        except OSError:
+            return
+        with lock:
+            if request == ["START"]:
+                reply = start(display_dir, host_wayland, log)
+            elif request == ["STOP"]:
+                reply = stop()
+            elif request == ["STATUS"]:
+                reply = "running" if _running() else "stopped"
+            else:
+                reply = "error unknown request"
+        try:
+            conn.sendall(reply.encode() + b"\n")
+        except OSError:
+            pass
+
+
+def watch(pid, path, display_dir, log):
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            pass
+        time.sleep(1)
+    with lock:
+        stop()
+        _clear(display_dir)
+        removals = [(os.rmdir, display_dir), (os.unlink, path)]
+        if log:
+            removals.append((os.unlink, log))
+        for remove, target in removals:
+            try:
+                remove(target)
+            except OSError:
+                pass
+    os._exit(0)
+
+
+def main():
+    path, pid, display_dir, host_wayland = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+    log = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else None
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    old_umask = os.umask(0o177)
+    server.bind(path)
+    os.umask(old_umask)
+    server.listen(4)
+    threading.Thread(target=watch, args=(pid, path, display_dir, log), daemon=True).start()
+    while True:
+        conn, _ = server.accept()
+        handle(conn, display_dir, host_wayland, log)
+
+
+if __name__ == "__main__":
+    main()
