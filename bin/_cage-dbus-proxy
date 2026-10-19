@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Host-side filtered session bus for a cage session (DESIGN §9).
+#
+# Usage: _cage-dbus-proxy <socket-path> <pid-to-watch> <upstream-address> [logfile]
+#
+# Runs xdg-dbus-proxy so the cage can only call org.freedesktop.Notifications on
+# its own path. xdg-dbus-proxy can't watch a pid, so this supervises it: once the
+# watched pid — the wrapper, which execs into podman — is gone, or the proxy
+# dies, the socket is removed. A dead proxy leaves the cage with no bus, never
+# the raw one.
+
+set -u
+sock=$1 watch=$2 upstream=$3 log=${4:-}
+
+rm -f "$sock"
+args=("$upstream" "$sock" --filter
+  "--call=org.freedesktop.Notifications=org.freedesktop.Notifications.*@/org/freedesktop/Notifications")
+if [ -n "$log" ]; then
+  args+=(--log)
+  exec 2>>"$log"
+fi
+
+xdg-dbus-proxy "${args[@]}" &
+proxy=$!
+while kill -0 "$watch" 2>/dev/null && kill -0 "$proxy" 2>/dev/null; do
+  sleep 1
+done
+kill "$proxy" 2>/dev/null
+wait "$proxy" 2>/dev/null
+rm -f "$sock" # xdg-dbus-proxy doesn't unlink its socket on SIGTERM

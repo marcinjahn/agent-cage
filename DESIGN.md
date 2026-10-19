@@ -123,7 +123,7 @@ implementation time; do not hardcode beyond what's noted.
     **absent even on host** — that branch is dormant; and strips a `limited ` prefix).
   - `PostToolUse/Edit|Write` → `format.sh` (runs `nvim --headless … conform.format`,
     then `npx eslint --fix` for JS/TS; honors `CLAUDE_NO_FORMAT`).
-  - `Notification` → `notify-send 'Claude Code needs attention'`.
+  - `Notification` → `notify-send 'Claude Code' 'Needs your decision'` (the `Stop` hook sends 'Finished working').
   - `WorktreeCreate`/`WorktreeRemove` → scripts. `statusLine` → `statusline-command.sh`.
 - Toolchains the cage must provide (host locations are irrelevant — reinstall fresh):
   dotnet, node (multiple, via `.nvmrc`), formatters **csharpier / prettier / stylua /
@@ -141,8 +141,9 @@ implementation time; do not hardcode beyond what's noted.
   needed in the cage (ro) so commits have correct author. **No SSH keys** are mounted
   (push is via `gh`/https only — see §7).
 - Notifications: Wayland session, `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cage/bus`
-  (the host `/run/user/1000/bus` socket, bound to a path outside the runtime tmpfs).
-  `notify-send` talks to the host notification daemon over that session bus socket.
+  (a per-session filtered proxy of the host session bus, bound to a path outside the
+  runtime tmpfs). `notify-send` talks to the host notification daemon through it; only
+  `org.freedesktop.Notifications` is reachable (§9).
 - `XDG_RUNTIME_DIR=/run/user/1000`, backed by a writable `tmpfs` the launcher mounts there
   (the cage has no logind to create it). Required by `fnm`, which keeps its per-shell
   "multishell" symlink under the runtime dir; without it node falls back to the system
@@ -273,7 +274,8 @@ Key points:
 - `GH_TOKEN` — the host GitHub token read via `gh auth token` (the host keeps it in the
   keyring, not a file), forwarded so the Copilot CLI and `gh` are authenticated (see §7).
   Passed by name so the value stays out of podman's argv; skipped if gh is logged out.
-- `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cage/bus` — for `notify-send` (see §9).
+- `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cage/bus` — for `notify-send` (see §9). Set only
+  when the filtered bus proxy started; otherwise the cage has no bus address.
 - `XDG_RUNTIME_DIR=/run/user/1000` — a writable tmpfs the launcher mounts; needed by `fnm`
   (see §9), not just notifications.
 - `TZ=Europe/Warsaw`, `DISABLE_AUTOUPDATER=1` — also set in the image; listed here so the
@@ -326,7 +328,7 @@ Key points:
 | `~/.config/gh`                    | same                | ro     | gh auth (also enables GitHub https push — §7 VCS note)    |
 | `~/.context7/credentials.json`    | same (file)         | ro     | Context7 CLI (`ctx7`) OAuth tokens                        |
 | `<repo>/etc/cage-claude.md`       | `/etc/claude-code/CLAUDE.md` | ro | cage-only agent instructions (managed CLAUDE.md, §8) |
-| `/run/user/1000/bus`              | `/run/cage/bus`     | ro     | notifications via dbus (outside the runtime tmpfs)        |
+| `$XDG_RUNTIME_DIR/agent-cage/dbus-<pid>.sock` | `/run/cage/bus` | ro | filtered session bus, Notifications only (§9; outside the runtime tmpfs) |
 | `$XDG_RUNTIME_DIR/agent-cage/clip-<pid>.sock` | `/run/cage/clipboard.sock` | ro | image-only clipboard broker (§9) |
 
 **SELinux:** use `--security-opt label=disable` (§6) rather than `:z`/`:Z` mount flags —
@@ -542,7 +544,7 @@ edits their nvim setup.
 
 `etc/cage-env.sh` defines a `command_not_found_handle` so that when Claude tries to run a
 tool the image doesn't provide, the user gets a host desktop notification (`notify-send`
-over the already-mounted dbus session bus, same path as the `Notification` hook above) —
+over the filtered session bus, same path as the `Notification` hook above) —
 the cue to add that tool to the `Dockerfile` and let the daily rebuild bake it in. It
 fires only on an actual exec attempt, not on `command -v`/`type` probes, so it tracks real
 use rather than availability checks; it still returns 127 so normal "command not found"
@@ -551,6 +553,34 @@ and a marker dir in the container-private `/run/user/1000` tmpfs (fresh each `--
 dedupes to one notification per tool per session — not `/tmp`, which is bind-mounted from the
 host (§7) and so persists across sessions. The handler is defined **before** the file's
 idempotency guard so it's present even in nested shells that short-circuit it.
+
+### Notifications (filtered session bus)
+
+Handing the cage the raw host session bus is a sandbox escape (the user systemd manager
+will start a transient unit with an arbitrary `ExecStart`), and the `ro` bind only protects
+the socket inode, not the messages. Instead:
+
+- The wrapper starts a per-session **host proxy** (`bin/_cage-dbus-proxy`, wrapping
+  `xdg-dbus-proxy`) on a unix socket under `$XDG_RUNTIME_DIR/agent-cage/`, mounted at
+  `/run/cage/bus`. `xdg-dbus-proxy` can't watch a pid, so the script supervises it and
+  removes the socket when the wrapper's pid (which `exec`s into podman) or the proxy dies.
+- Allowlist: a single rule, `--call=org.freedesktop.Notifications=org.freedesktop.Notifications.*@/org/freedesktop/Notifications`.
+  `notify-send` (libnotify) only needs `Notify`, `GetServerInformation`, `GetCapabilities`
+  and `CloseNotification`. Service activation, systemd1, Secret Service, portals and every
+  other name are denied by the proxy's built-in bus-driver filter.
+- Why `--call`, not `--talk`: the proxy applies a well-known name's policy to the owner's
+  unique name too, and the notification daemon's connection often owns other names and
+  objects (e.g. `org.kde.StatusNotifierWatcher`, shell/compositor interfaces). `--talk`
+  would open every interface on that connection; `--call` limits it to one interface on
+  one path even when the cage addresses the unique name.
+- No `--broadcast`: the daemon emits `ActionInvoked`, `NotificationReplied` and
+  `ActivationToken` signals; allowing them would leak other apps' notification actions
+  and inline-reply text. Consequence: no clickable notifications / `notify-send --wait`.
+- Fail closed: if `xdg-dbus-proxy` is missing or doesn't come up, the launcher warns and
+  the session starts with no bus mounted and no `DBUS_SESSION_BUS_ADDRESS` (notifications
+  disabled), never the raw bus.
+- `CAGE_DBUS_LOG=1` on the host makes the proxy log (`--log`) to
+  `$XDG_RUNTIME_DIR/agent-cage/dbus-<pid>.log`.
 
 ### Clipboard image paste
 
@@ -624,7 +654,7 @@ hook, or shell-prompt customization.
 | Symlinks outside `~/code`                            | `~/.local/share/puff/projects` ro mount (covers all puff links)       |
 | Access `~/scripts`                                   | ro mount, on PATH                                                     |
 | Sessions shared both ways                            | Path identity + shared `~/.claude`                                    |
-| Notification hook → host                             | dbus session-bus socket mount + `notify-send` in image                |
+| Notification hook → host                             | filtered dbus proxy socket mount (§9) + `notify-send` in image        |
 | Paste images (Ctrl+V)                                | host image-only clipboard broker + `wl-paste` shim in image (§9)      |
 | Formatting hook (nvim)                               | Fedora base + ro mounts of nvim config/data + formatters on PATH      |
 | `CLAUDE_NO_FORMAT` etc.                              | Wrapper forwards `--env`                                              |
@@ -652,6 +682,10 @@ Implement, then verify each of these empirically:
       `fnm use --install-if-missing` (an unbaked version must be fetched on demand into the
       FNM_DIR volume); verify `node -v` matches `.nvmrc` in a fresh cage, not just after `cd`.
 - [ ] **Notifications** from the cage appear on the host desktop.
+- [ ] **Only Notifications reachable on the bus**: `busctl --user list` in the cage shows
+      just `org.freedesktop.DBus`, `org.freedesktop.Notifications` and the cage's own name;
+      calls to systemd1, secrets, or other interfaces/paths of the notification daemon's
+      connection are denied; `/run/user/1000/bus` doesn't exist.
 - [ ] **Image paste** (Ctrl+V) works in `claude-cage`; `wl-paste` in the cage returns
       nothing for copied text.
 - [ ] **Sessions** created in the cage are visible/resumable on the host and vice-versa.

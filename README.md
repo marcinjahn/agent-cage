@@ -36,6 +36,8 @@ and rationale.
 - **Fedora 43** host, user `mnj`, uid/gid **1000** (the image is built to match — see
   `DESIGN.md` §4/§5).
 - **Podman** (rootless). `docker` is not required on the host.
+- **`xdg-dbus-proxy`** (Fedora package of the same name) for desktop notifications; without
+  it the cage starts with notifications disabled.
 - The base image is pulled from `ghcr.io/marcinjahn/agent-cage:latest`, rebuilt daily by
   GitHub Actions.
 

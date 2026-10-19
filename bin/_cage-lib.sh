@@ -530,10 +530,15 @@ _cage_add_mounts() {
   # is stacked on top of, and hides, any bind nested within it.
   RUN_ARGS+=(--tmpfs /run/user/1000:rw,nosuid,nodev)
 
-  # Notifications via the host session bus (DESIGN §9). Bound to a sibling path (not
-  # $XDG_RUNTIME_DIR/bus) so the runtime tmpfs above doesn't shadow it; the matching
-  # DBUS_SESSION_BUS_ADDRESS points here.
-  _cage_bind ro "/run/user/1000/bus" "/run/cage/bus"
+  # Notifications via a per-session filtered proxy of the host session bus — only
+  # org.freedesktop.Notifications is reachable (DESIGN §9). Bound to a sibling path
+  # (not $XDG_RUNTIME_DIR/bus) so the runtime tmpfs above doesn't shadow it. The bus
+  # address is set only when the proxy is up: no proxy, no bus.
+  local bus_sock
+  if bus_sock="$(_cage_dbus_proxy_start)"; then
+    _cage_bind ro "$bus_sock" "/run/cage/bus"
+    RUN_ARGS+=(--env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cage/bus")
+  fi
 
   # Image-only clipboard paste via a host broker (the cage's wl-paste is a shim
   # talking to it), rather than handing the cage the Wayland socket — which would
@@ -562,6 +567,30 @@ _cage_clip_broker_start() {
   return 1
 }
 
+# Start the session's filtered D-Bus proxy, echoing its socket path. Like the clipboard
+# broker it watches $$ and goes away with the session. Fails closed: without
+# xdg-dbus-proxy the cage gets no bus at all.
+_cage_dbus_proxy_start() {
+  if ! command -v xdg-dbus-proxy >/dev/null; then
+    cage_err "xdg-dbus-proxy not installed; desktop notifications disabled (sudo dnf install xdg-dbus-proxy)"
+    return 1
+  fi
+  local upstream="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus}"
+  local dir="${XDG_RUNTIME_DIR:-/tmp}/agent-cage" log=""
+  local sock="$dir/dbus-$$.sock"
+  mkdir -p -m 700 "$dir" || return 1
+  [ -n "${CAGE_DBUS_LOG:-}" ] && log="$dir/dbus-$$.log"
+  setsid -f "$(dirname "${BASH_SOURCE[0]}")/_cage-dbus-proxy" "$sock" "$$" "$upstream" "$log" \
+    </dev/null >/dev/null 2>&1 || return 1
+  local _
+  for _ in $(seq 1 20); do
+    [ -S "$sock" ] && printf '%s' "$sock" && return 0
+    sleep 0.1
+  done
+  cage_err "D-Bus proxy didn't start; desktop notifications disabled in this session"
+  return 1
+}
+
 # Echo half of a podman --memory value (e.g. 4g, 512m, 1073741824) in MiB.
 _cage_node_heap_mb() {
   local v="${1,,}" num unit bytes
@@ -580,7 +609,6 @@ _cage_add_envs() {
   RUN_ARGS+=(
     --env AGENT_CAGE=1                    # cage marker (DESIGN §11)
     --env "DOCKER_HOST=unix://$CAGE_SOCK" # -> the sidecar (DESIGN §8)
-    --env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cage/bus"
     --env "XDG_RUNTIME_DIR=/run/user/1000"
     --env "TZ=Europe/Warsaw"
     --env "DISABLE_AUTOUPDATER=1"
