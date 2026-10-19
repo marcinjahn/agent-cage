@@ -25,9 +25,11 @@ solve a captcha), open it in a nested display window on their desktop:
 
 1. `cage-display start` (if it says there's no display broker, tell the user what it
    printed and stop).
-2. `WAYLAND_DISPLAY=/run/cage/display/wayland-0 playwright-cli open --headed --browser chrome <url>`
-   (for Firefox: `--browser firefox` plus `MOZ_ENABLE_WAYLAND=1`). Set `WAYLAND_DISPLAY`
-   only on this command, never globally: it changes how Claude Code and other tools behave.
+2. `XDG_SESSION_TYPE=wayland WAYLAND_DISPLAY=/run/cage/display/wayland-0 playwright-cli open --headed --browser chrome <url>`
+   (`--browser firefox` works the same way). Chrome needs both variables; without
+   `XDG_SESSION_TYPE=wayland` it tries X11 and fails with "Missing X server or $DISPLAY".
+   Set them only on this command, never globally: they change how Claude Code and other
+   tools behave.
 3. Ask the user to sign in in the window, wait for them to say they're done, then continue
    with the usual `playwright-cli` commands.
 4. When finished: `playwright-cli close`, then `cage-display stop`.

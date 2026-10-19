@@ -55,7 +55,8 @@ def main(argv):
         print(f"cage-display: started, but {WAYLAND} isn't visible in the cage", file=sys.stderr)
         return 1
     print(f"display running at {WAYLAND}; open a headed browser on it with:")
-    print(f"  WAYLAND_DISPLAY={WAYLAND} playwright-cli open --headed --browser chrome <url>")
+    print(f"  XDG_SESSION_TYPE=wayland WAYLAND_DISPLAY={WAYLAND} playwright-cli open --headed --browser chrome <url>")
+    print("(--browser firefox works with the same variables)")
     return 0
 
 

@@ -664,10 +664,19 @@ running as one window on the host desktop.
   between OSC 52 and native clipboard tools and to decide whether it can open a browser for
   OAuth, so a global value would change its behaviour (and point at a socket that usually
   doesn't exist). The agent sets it only on the browser command:
-  `WAYLAND_DISPLAY=/run/cage/display/wayland-0 playwright-cli open --headed --browser chrome <url>`.
-  `open` always starts a fresh playwright-cli daemon with the caller's environment, and
-  Chrome picks the Wayland backend when `WAYLAND_DISPLAY` is set; Firefox also needs
-  `MOZ_ENABLE_WAYLAND=1`.
+  `XDG_SESSION_TYPE=wayland WAYLAND_DISPLAY=/run/cage/display/wayland-0 playwright-cli open --headed --browser chrome <url>`.
+  `open` always starts a fresh playwright-cli daemon with the caller's environment.
+- **Chrome selects its Ozone backend from `XDG_SESSION_TYPE`.** Playwright launches
+  `/opt/google/chrome/chrome` directly (not the `google-chrome` wrapper) with no
+  `--ozone-platform` flag, so Chrome's built-in `auto` hint decides, and in Chrome 155 that
+  picks Wayland only when `XDG_SESSION_TYPE=wayland`; `WAYLAND_DISPLAY` alone, absolute or
+  relative, still gets X11 and "Missing X server or $DISPLAY". `XDG_SESSION_TYPE` is set
+  per command like `WAYLAND_DISPLAY`. The alternative, an explicit `--ozone-platform=wayland`
+  in a playwright-cli config file, was rejected: `--config` *replaces* the project's
+  `.playwright/cli.config.json` instead of merging with it (only `~/.playwright/cli.config.json`
+  merges, underneath, and a project's `launchOptions.args` would replace its args anyway).
+  Firefox needs nothing extra: with `WAYLAND_DISPLAY` set and no `DISPLAY` it uses Wayland
+  on its own.
 - **Profiles:** playwright-cli's default profile is in-memory and dies with the browser;
   `etc/cage-claude.md` tells the agent not to use `--persistent`/`--profile` here, so SSO
   cookies don't outlive the session.
@@ -767,8 +776,8 @@ Implement, then verify each of these empirically:
       is the host's (files appear on both sides), and the host's `/tmp/.X11-unix` and other
       host `/tmp` entries are absent.
 - [ ] **Headed browser**: `cage-display start`, then
-      `WAYLAND_DISPLAY=/run/cage/display/wayland-0 playwright-cli open --headed --browser chrome https://accounts.google.com`
-      shows the page in a Weston window (repeat with Firefox + `MOZ_ENABLE_WAYLAND=1`); text
+      `XDG_SESSION_TYPE=wayland WAYLAND_DISPLAY=/run/cage/display/wayland-0 playwright-cli open --headed --browser chrome https://accounts.google.com`
+      shows the page in a Weston window (repeat with `--browser firefox`); text
       copied on the host can't be pasted into it and vice versa; `ls /run/cage/display`
       shows only `wayland-0` and its lock; ending the session removes Weston and the dir;
       without `weston` on the host, `cage-display start` explains how to install it. Check
