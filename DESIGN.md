@@ -220,7 +220,10 @@ mason-compiled nvim formatters — run correctly).
    `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`. Playwright's own **Firefox** build is installed
    explicitly (`playwright-core install firefox` from the CLI's bundled copy, into the
    default `~/.cache/ms-playwright` image layer) for `--browser=firefox`; its only extra OS
-   dependency is `libX11-xcb`. Playwright's Chromium and WebKit are not installed. Likewise
+   dependency is `libX11-xcb`. Playwright's **chromium-headless-shell** is installed the same
+   way (headless `--browser=chromium`, and plain Playwright scripts' default headless
+   Chromium); it needs no OS libraries beyond Chrome's. Playwright's full Chromium and WebKit
+   are not installed. Likewise
    install **`ccusage`** (npm global, into a dedicated `/opt/ccusage` image-layer prefix) to
    analyze Claude Code token usage/cost from the local session logs; no auth to bake.
 9. **Rootless docker engine** for the sidecar image (may be a _separate_ image — see §8).

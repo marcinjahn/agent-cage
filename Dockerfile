@@ -377,13 +377,16 @@ USER mnj
 # would otherwise run on install — Chromium is covered by the system Chrome
 # (above). Firefox (`--browser=firefox`) has to be Playwright's own patched build,
 # so it is installed explicitly via the CLI's bundled playwright-core, keeping its
-# revision in lockstep with the CLI. It lands in the default
+# revision in lockstep with the CLI. chromium-headless-shell (`--browser=chromium`
+# headless, and what plain Playwright scripts launch headless by default) is
+# installed the same way; Chrome's RPM already provides all its OS libraries.
+# Both land in the default
 # ~/.cache/ms-playwright (an image layer, no volume covers it). The timeout turns
 # a regression of the archive-extraction hang seen on Node 24.16.0+
 # (microsoft/playwright#40724) into a build failure instead of a stuck build.
 RUN eval "$(fnm env --shell bash)" \
     && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g --prefix /opt/playwright @playwright/cli \
-    && timeout 600 /opt/playwright/lib/node_modules/@playwright/cli/node_modules/.bin/playwright-core install firefox \
+    && timeout 600 /opt/playwright/lib/node_modules/@playwright/cli/node_modules/.bin/playwright-core install firefox chromium-headless-shell \
     && { /opt/playwright/bin/playwright-cli --version > /home/mnj/.cage-playwright-version 2>/dev/null || true; }
 
 # ---------------------------------------------------------------------------
