@@ -146,19 +146,19 @@ being edited, not what `kubectl` could do against the API. Instead:
 
 ## Configuration (env vars)
 
-| Var                    | Default                                | Purpose                                                                          |
-| ---------------------- | -------------------------------------- | -------------------------------------------------------------------------------- |
-| `CAGE_IMAGE`           | `ghcr.io/marcinjahn/agent-cage:latest` | base image reference                                                             |
-| `CAGE_MEMORY`          | `8g`                                   | per-session memory cap; Node's heap limit (`NODE_OPTIONS`) is set to half of it  |
+| Var                    | Default                                | Purpose                                                                                |
+| ---------------------- | -------------------------------------- | -------------------------------------------------------------------------------------- |
+| `CAGE_IMAGE`           | `ghcr.io/marcinjahn/agent-cage:latest` | base image reference                                                                   |
+| `CAGE_MEMORY`          | `8g`                                   | per-session memory cap; Node's heap limit (`NODE_OPTIONS`) is set to half of it        |
 | `CAGE_CPUS`            | `6`                                    | per-session CPU cap; `nproc`/Python report it via `OMP_NUM_THREADS`/`PYTHON_CPU_COUNT` |
-| `CAGE_TOTAL_MEMORY`    | `22G`                                  | `MemoryHigh` of `agentcage.slice`, shared by all sessions + the docker sidecar   |
-| `CAGE_TOTAL_CPUS`      | `12`                                   | `CPUQuota` (in CPUs) of `agentcage.slice`                                        |
-| `CAGE_PIDS`            | `16384`                                | per-session cap on processes + threads (`-1` = unlimited)                        |
-| `CAGE_PULL_INTERVAL`   | `86400`                                | min seconds between `:latest` checks (`0` = every launch; `--update` forces one) |
-| `CAGE_NO_PULL`         | `0`                                    | `1` skips the registry check and runs the cached image as-is (`--no-update`)     |
-| `CAGE_KUBE_TOKEN_TTL`  | `1h`                                   | validity of the minted read-only kubectl tokens (`--kube`)                       |
-| `CAGE_SIDECAR_STORAGE` | _(unset)_                              | set to `vfs` if fuse-overlayfs is absent                                         |
-| `CAGE_DISPLAY`         | `1`                                    | `0` gives sessions no display broker, so `cage-display` can't open a window      |
+| `CAGE_TOTAL_MEMORY`    | `22G`                                  | `MemoryHigh` of `agentcage.slice`, shared by all sessions + the docker sidecar         |
+| `CAGE_TOTAL_CPUS`      | `12`                                   | `CPUQuota` (in CPUs) of `agentcage.slice`                                              |
+| `CAGE_PIDS`            | `16384`                                | per-session cap on processes + threads (`-1` = unlimited)                              |
+| `CAGE_PULL_INTERVAL`   | `86400`                                | min seconds between `:latest` checks (`0` = every launch; `--update` forces one)       |
+| `CAGE_NO_PULL`         | `0`                                    | `1` skips the registry check and runs the cached image as-is (`--no-update`)           |
+| `CAGE_KUBE_TOKEN_TTL`  | `1h`                                   | validity of the minted read-only kubectl tokens (`--kube`)                             |
+| `CAGE_SIDECAR_STORAGE` | _(unset)_                              | set to `vfs` if fuse-overlayfs is absent                                               |
+| `CAGE_DISPLAY`         | `1`                                    | `0` gives sessions no display broker, so `cage-display` can't open a window            |
 
 ## Notes & limitations
 
@@ -169,8 +169,11 @@ being edited, not what `kubectl` could do against the API. Instead:
   those from the host. (`DESIGN.md` §7)
 - **Ports:** `--network host` makes host↔cage port-forwarding free, but parallel sessions
   share the host port space. Rootless Podman can't bind ports <1024 — use high ports.
-- **Work roots:** `claude-cage` only launches from inside `~/code` or `~/triage-issues`
-  (the rw-mounted roots), so the cwd resolves to real files in the cage. To work elsewhere,
+- **Work roots:** `claude-cage` only launches from inside `~/code`, `~/triage-issues` or
+  `~/tmp` (the rw-mounted roots), so the cwd resolves to real files in the cage. Launching
+  from `~` itself runs the session in `~/tmp/cage-home` instead (override with
+  `CAGE_HOME_FALLBACK_DIR`), so a quick question needs no `cd`, and `-c`/`-r` find earlier
+  such sessions. To work elsewhere,
   pass `--mount-cwd`, which bind-mounts the current dir into the cage **read-write** at the
   same path. If that dir is otherwise mounted read-only (e.g. `~/.config/nvim`), the
   read-write cwd mount takes precedence. The docker sidecar still only sees `~/code`, `~/tmp`

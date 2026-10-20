@@ -259,8 +259,10 @@ rebuild picks it up. Do not scatter toolchain installs.
 Pseudocode:
 
 ```
-1. Resolve CWD. Require it under a work root (/home/mnj/code, /home/mnj/triage-issues),
-   else error with guidance — unless --mount-cwd, which binds the cwd in on the fly (§7).
+1. Resolve CWD. If it is $HOME itself, cd to ~/tmp/cage-home (quick, unrelated
+   questions; the home dir is never mounted). Require it under a work root
+   (/home/mnj/code, /home/mnj/triage-issues, /home/mnj/tmp), else error with
+   guidance — unless --mount-cwd, which binds the cwd in on the fly (§7).
 2. Ensure base image present (lazy pull of :latest, rate-limited).
 3. Ensure docker sidecar is up (see §8) — start if missing/unhealthy, else reuse.
 4. exec podman run --rm -it \
@@ -316,42 +318,42 @@ Key points:
 
 ### Bind mounts (host → container, identical paths)
 
-| Host path                                     | Container path               | Mode   | Purpose                                                                  |
-| --------------------------------------------- | ---------------------------- | ------ | ------------------------------------------------------------------------ |
-| `/tmp/claude-1000`                            | same                         | **rw** | Claude Code's scratchpads, shared between host and cage                  |
-| `~/tmp`                                       | same                         | **rw** | shared personal scratch dir between host and cage                        |
-| `~/code`                                      | `/home/mnj/code`             | **rw** | the work                                                                 |
-| `~/.claude`                                   | `/home/mnj/.claude`          | **rw** | sessions, history, creds — but with ro overlays below                    |
-| `~/.claude/hooks`                             | same                         | **ro** | host-executed; ro prevents host-escape poisoning (§2)                    |
-| `~/.claude/settings.json`                     | same (file)                  | **ro** | host-executed hook/statusline config; ro (§2)                            |
-| `~/.claude/settings.local.json`               | same (file)                  | **ro** | as above                                                                 |
-| `~/.claude/statusline-command.sh`             | same (file)                  | **ro** | host-executed; ro (§2)                                                   |
-| `~/.claude.json`                              | same                         | **rw** | MCP + project config                                                     |
-| `~/.gitconfig`                                | same (file)                  | ro     | commit author identity                                                   |
-| `~/.gitconfig-code`                           | same (file)                  | ro     | `includeIf` for `~/code/` repos (excludesfile override)                  |
-| `~/.gitignore`                                | same (file)                  | ro     | global excludesfile (`~/.gitconfig`)                                     |
-| `~/.gitignore-code`                           | same (file)                  | ro     | global excludesfile for `~/code/` repos                                  |
-| `~/.config/jj`                                | same                         | **rw** | jj per-repo trust cache (`repos/`) — user-owned parent                   |
-| `~/.config/jj/config.toml`                    | same (file)                  | ro     | jj identity (nested ro over the rw dir above)                            |
-| `~/scripts`                                   | same                         | ro     | skills' scripts; provides `limited` (put on PATH)                        |
-| `~/.config/nvim`                              | same                         | ro     | formatting hook — exact nvim config (§9)                                 |
-| `~/.local/share/nvim`                         | same                         | ro     | nvim plugins + mason-installed formatters (§9)                           |
-| `~/.local/share/puff/projects`                | same                         | ro     | resolves all puff symlinks under `~/code`                                |
-| `~/.docker/config.json`                       | same (file)                  | ro     | registry auth (GCR rewritten to a baked token — below)                   |
-| `~/.npmrc`                                    | same (file)                  | ro     | npm auth                                                                 |
-| `~/.config/NuGet`                             | same                         | ro     | nuget sources/auth                                                       |
-| `~/.microsoft/usersecrets`                    | same                         | ro     | .NET development user secrets                                            |
-| `~/.nuget/packages`                           | same                         | **rw** | shared restore cache — reuse host-downloaded packages                    |
-| `~/.local/share/pnpm/store`                   | same                         | **rw** | shared pnpm store — same fs as `~/code` so hardlinks work                |
-| `~/.cache/pnpm`                               | same                         | **rw** | pnpm metadata cache                                                      |
-| `~/.config/acli`                              | same                         | ro     | acli auth                                                                |
-| `~/.config/gh`                                | same                         | ro     | gh auth (also enables GitHub https push — §7 VCS note)                   |
-| `~/.context7/credentials.json`                | same (file)                  | ro     | Context7 CLI (`ctx7`) OAuth tokens                                       |
-| `<repo>/etc/cage-claude.md`                   | `/etc/claude-code/CLAUDE.md` | ro     | cage-only agent instructions (managed CLAUDE.md, §8)                     |
-| `$XDG_RUNTIME_DIR/agent-cage/dbus-<pid>.sock` | `/run/cage/bus`              | ro     | filtered session bus, Notifications only (§9; outside the runtime tmpfs) |
-| `$XDG_RUNTIME_DIR/agent-cage/clip-<pid>.sock` | `/run/cage/clipboard.sock`   | ro     | image-only clipboard broker (§9)                                         |
-| `$XDG_RUNTIME_DIR/agent-cage/display-<pid>.sock` | `/run/cage/display.sock`  | ro     | on-demand nested display broker (§9; only when `weston` is installed)   |
-| `$XDG_RUNTIME_DIR/agent-cage/display-<pid>/`  | `/run/cage/display`          | ro     | nested Weston's runtime dir: holds only its `wayland-0` socket (§9)     |
+| Host path                                        | Container path               | Mode   | Purpose                                                                  |
+| ------------------------------------------------ | ---------------------------- | ------ | ------------------------------------------------------------------------ |
+| `/tmp/claude-1000`                               | same                         | **rw** | Claude Code's scratchpads, shared between host and cage                  |
+| `~/tmp`                                          | same                         | **rw** | shared personal scratch dir between host and cage                        |
+| `~/code`                                         | `/home/mnj/code`             | **rw** | the work                                                                 |
+| `~/.claude`                                      | `/home/mnj/.claude`          | **rw** | sessions, history, creds — but with ro overlays below                    |
+| `~/.claude/hooks`                                | same                         | **ro** | host-executed; ro prevents host-escape poisoning (§2)                    |
+| `~/.claude/settings.json`                        | same (file)                  | **ro** | host-executed hook/statusline config; ro (§2)                            |
+| `~/.claude/settings.local.json`                  | same (file)                  | **ro** | as above                                                                 |
+| `~/.claude/statusline-command.sh`                | same (file)                  | **ro** | host-executed; ro (§2)                                                   |
+| `~/.claude.json`                                 | same                         | **rw** | MCP + project config                                                     |
+| `~/.gitconfig`                                   | same (file)                  | ro     | commit author identity                                                   |
+| `~/.gitconfig-code`                              | same (file)                  | ro     | `includeIf` for `~/code/` repos (excludesfile override)                  |
+| `~/.gitignore`                                   | same (file)                  | ro     | global excludesfile (`~/.gitconfig`)                                     |
+| `~/.gitignore-code`                              | same (file)                  | ro     | global excludesfile for `~/code/` repos                                  |
+| `~/.config/jj`                                   | same                         | **rw** | jj per-repo trust cache (`repos/`) — user-owned parent                   |
+| `~/.config/jj/config.toml`                       | same (file)                  | ro     | jj identity (nested ro over the rw dir above)                            |
+| `~/scripts`                                      | same                         | ro     | skills' scripts; provides `limited` (put on PATH)                        |
+| `~/.config/nvim`                                 | same                         | ro     | formatting hook — exact nvim config (§9)                                 |
+| `~/.local/share/nvim`                            | same                         | ro     | nvim plugins + mason-installed formatters (§9)                           |
+| `~/.local/share/puff/projects`                   | same                         | ro     | resolves all puff symlinks under `~/code`                                |
+| `~/.docker/config.json`                          | same (file)                  | ro     | registry auth (GCR rewritten to a baked token — below)                   |
+| `~/.npmrc`                                       | same (file)                  | ro     | npm auth                                                                 |
+| `~/.config/NuGet`                                | same                         | ro     | nuget sources/auth                                                       |
+| `~/.microsoft/usersecrets`                       | same                         | ro     | .NET development user secrets                                            |
+| `~/.nuget/packages`                              | same                         | **rw** | shared restore cache — reuse host-downloaded packages                    |
+| `~/.local/share/pnpm/store`                      | same                         | **rw** | shared pnpm store — same fs as `~/code` so hardlinks work                |
+| `~/.cache/pnpm`                                  | same                         | **rw** | pnpm metadata cache                                                      |
+| `~/.config/acli`                                 | same                         | ro     | acli auth                                                                |
+| `~/.config/gh`                                   | same                         | ro     | gh auth (also enables GitHub https push — §7 VCS note)                   |
+| `~/.context7/credentials.json`                   | same (file)                  | ro     | Context7 CLI (`ctx7`) OAuth tokens                                       |
+| `<repo>/etc/cage-claude.md`                      | `/etc/claude-code/CLAUDE.md` | ro     | cage-only agent instructions (managed CLAUDE.md, §8)                     |
+| `$XDG_RUNTIME_DIR/agent-cage/dbus-<pid>.sock`    | `/run/cage/bus`              | ro     | filtered session bus, Notifications only (§9; outside the runtime tmpfs) |
+| `$XDG_RUNTIME_DIR/agent-cage/clip-<pid>.sock`    | `/run/cage/clipboard.sock`   | ro     | image-only clipboard broker (§9)                                         |
+| `$XDG_RUNTIME_DIR/agent-cage/display-<pid>.sock` | `/run/cage/display.sock`     | ro     | on-demand nested display broker (§9; only when `weston` is installed)    |
+| `$XDG_RUNTIME_DIR/agent-cage/display-<pid>/`     | `/run/cage/display`          | ro     | nested Weston's runtime dir: holds only its `wayland-0` socket (§9)      |
 
 **`/tmp`:** only `/tmp/claude-<uid>` is shared (the wrapper creates it `0700` first, so
 the bind is never skipped); the docker sidecar shares the same dir (§8). The rest of the
@@ -644,7 +646,7 @@ running as one window on the host desktop.
   (`etc/cage-display` → `/usr/local/bin`). Requests are bare `START`, `STOP`, `STATUS` —
   nothing from the cage reaches the command line, which is fixed:
   `weston --no-config --backend=wayland --shell=kiosk-shell.so --socket=wayland-0
-  --width=1280 --height=900 --idle-time=0`.
+--width=1280 --height=900 --idle-time=0`.
 - **Socket placement:** Weston creates its socket in `$XDG_RUNTIME_DIR`, so the broker runs
   it with `XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR/agent-cage/display-<pid>/` (0700, created by the
   wrapper) and reaches the host compositor by absolute `WAYLAND_DISPLAY` path; `DISPLAY` is
@@ -675,7 +677,7 @@ running as one window on the host desktop.
   picks Wayland only when `XDG_SESSION_TYPE=wayland`; `WAYLAND_DISPLAY` alone, absolute or
   relative, still gets X11 and "Missing X server or $DISPLAY". `XDG_SESSION_TYPE` is set
   per command like `WAYLAND_DISPLAY`. The alternative, an explicit `--ozone-platform=wayland`
-  in a playwright-cli config file, was rejected: `--config` *replaces* the project's
+  in a playwright-cli config file, was rejected: `--config` _replaces_ the project's
   `.playwright/cli.config.json` instead of merging with it (only `~/.playwright/cli.config.json`
   merges, underneath, and a project's `launchOptions.args` would replace its args anyway).
   Firefox needs nothing extra: with `WAYLAND_DISPLAY` set and no `DISPLAY` it uses Wayland

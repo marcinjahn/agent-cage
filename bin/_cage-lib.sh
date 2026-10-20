@@ -98,7 +98,13 @@ CAGE_INVOKED_AS="${CAGE_INVOKED_AS:-$(basename "$0")}"
 # from outside these — otherwise podman would create an empty workdir and the agent
 # would see none of your files. Keep in sync with the rw work binds in
 # _cage_add_mounts.
-CAGE_WORK_ROOTS=("$HOME/code" "$HOME/triage-issues")
+CAGE_WORK_ROOTS=("$HOME/code" "$HOME/triage-issues" "$HOME/tmp")
+
+# Where a session launched from $HOME itself runs instead. Such launches are almost
+# always quick questions unrelated to the home dir, which isn't (and mustn't be)
+# mounted. A fixed dir rather than a fresh one keeps `claude -c`/`-r` working
+# across those sessions, since Claude Code keys sessions by cwd.
+CAGE_HOME_FALLBACK_DIR="${CAGE_HOME_FALLBACK_DIR:-$HOME/tmp/cage-home}"
 
 # Repo-relative assets (the sidecar's subordinate-id map — DESIGN §8).
 CAGE_ETC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../etc" && pwd)"
@@ -129,7 +135,14 @@ _cage_under_work_root() {
 # real, mounted dir inside the cage rather than an empty one). --mount-cwd
 # (CAGE_MOUNT_CWD=1) waives this by binding the cwd in on the fly (see
 # _cage_add_mounts), so an outside dir is allowed once the user opts in.
+# Launching from $HOME itself (without --mount-cwd) switches to
+# CAGE_HOME_FALLBACK_DIR instead.
 cage_require_workdir() {
+  if [ "$PWD" = "$HOME" ] && [ "$CAGE_MOUNT_CWD" != "1" ]; then
+    mkdir -p "$CAGE_HOME_FALLBACK_DIR" && cd "$CAGE_HOME_FALLBACK_DIR" ||
+      cage_die "can't switch to $CAGE_HOME_FALLBACK_DIR"
+    cage_err "started from ~, running in $CAGE_HOME_FALLBACK_DIR"
+  fi
   _cage_under_work_root "$PWD" && return 0
   [ "$CAGE_MOUNT_CWD" = "1" ] && return 0
 
