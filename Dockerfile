@@ -40,7 +40,7 @@ RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
 # standalone /usr/bin/time (GNU time, with -v for peak RSS etc.) — bash's
 # built-in `time` keyword doesn't support that. systemd provides coredumpctl
 # for inspecting crash dumps. ImageMagick provides magick for image
-# conversion/inspection.
+# conversion/inspection. sqlite provides the sqlite3 CLI.
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng tree \
         fd-find ripgrep \
@@ -59,6 +59,7 @@ RUN dnf -y install \
         diffutils patch \
         vim-common \
         ImageMagick \
+        sqlite \
         iputils iproute traceroute mtr bind-utils \
         nmap nmap-ncat tcpdump socat whois net-tools wget telnet lsof \
     && dnf clean all
