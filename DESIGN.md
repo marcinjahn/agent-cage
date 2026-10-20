@@ -286,6 +286,16 @@ Key points:
   session project-encoding identical to host (→ shared sessions).
 - **`--rm`** + parallel invocations = independent parallel sessions.
 - Forward extra args (`"$@"`) to `claude`.
+- **Launch latency is a feature.** Sessions are often one quick prompt, so everything the
+  wrapper does before `exec podman run` is paid on every launch. The budget is a few
+  hundred ms (a bare `podman run … true` takes ~0.2 s), which shapes how the steps above
+  are done:
+  - the sidecar check (step 3) is a single `podman exec` that checks the daemon and reads
+    every shared dir's inode at once (each exec costs 0.1–0.2 s);
+  - the per-session brokers (§9) are all launched first and waited for together, polling
+    every 20 ms;
+  - the gcloud token (§7) is cached and refreshed in the background, overlapping the
+    sidecar check, instead of running gcloud (~1 s) on every launch.
 
 **Environment passed in (`--env`):**
 
@@ -388,7 +398,11 @@ as a static `auths` entry for each gcloud-helper host, dropping those `credHelpe
 generated file (not the host one) is mounted ro, so testcontainers can pull private images
 (e.g. `europe-docker.pkg.dev/.../mongo:8`). The token expires in ~1h, but the sidecar
 caches the image after the first pull, so a launch-time token suffices. Falls back to the
-untouched host config when gcloud/jq/the token aren't available.
+untouched host config when gcloud/jq/the token aren't available. gcloud takes ~1 s, so the
+token is cached in `$XDG_STATE_HOME/agent-cage/gcloud-token` (0600): reused for 45 min
+(a session always starts with ≥15 min left), and a failed mint is cached as an empty file
+for 15 min so a logged-out gcloud doesn't slow every launch. A stale cache is refreshed in
+the background while the sidecar is checked (§6).
 
 **Future exfil mitigation hook:** to later reduce the credential blast radius (§2), drop
 the rarely-needed cred mounts (e.g. acli) and/or pair with an egress allowlist (§10).

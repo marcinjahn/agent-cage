@@ -74,6 +74,7 @@ CAGE_SOCK="/sock/docker.sock"
 
 CAGE_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/agent-cage"
 CAGE_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agent-cage"
+CAGE_GCLOUD_TOKEN_CACHE="$CAGE_STATE_DIR/gcloud-token"
 
 # Read-only kubectl access is opt-in and host-specific (which clusters, if
 # any), so its config lives outside this repo, in the XDG config dir rather
@@ -297,11 +298,13 @@ _cage_bind() {
 # pull private images. The token expires in ~1h, but the sidecar caches the image
 # after the first pull, so a launch-time token is enough in practice.
 # Falls back to the host config untouched when gcloud/jq/token aren't available.
+# The token comes from the cache cage_prefetch_creds keeps, not a fresh gcloud
+# call: gcloud alone would cost ~1 s per launch.
 _cage_docker_config() {
   local host_cfg="$HOME/.docker/config.json" tok base gen="$CAGE_STATE_DIR/docker-config.json"
 
-  if ! command -v gcloud >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1 ||
-    ! tok="$(gcloud auth print-access-token 2>/dev/null)" || [ -z "$tok" ]; then
+  if ! command -v jq >/dev/null 2>&1 ||
+    ! tok="$(cat "$CAGE_GCLOUD_TOKEN_CACHE" 2>/dev/null)" || [ -z "$tok" ]; then
     printf '%s' "$host_cfg"
     return 0
   fi
@@ -323,6 +326,28 @@ _cage_docker_config() {
   else
     printf '%s' "$host_cfg"
   fi
+}
+
+# Refresh the cached gcloud access token in the background when it's stale, so
+# gcloud runs alongside the sidecar check instead of before the launch. Tokens
+# live ~1h; one is reused for 45 min so a session still starts with >=15 min
+# left. A failed mint (e.g. logged out) is cached too, as an empty file, for
+# 15 min, so it doesn't slow down every launch. _cage_add_mounts waits for it.
+cage_prefetch_creds() {
+  _CAGE_GCLOUD_PID=""
+  command -v gcloud >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || return 0
+  local f="$CAGE_GCLOUD_TOKEN_CACHE" ttl=2700
+  if [ -f "$f" ]; then
+    [ -s "$f" ] || ttl=900
+    [ $(($(date +%s) - $(stat -c %Y "$f"))) -lt "$ttl" ] && return 0
+  fi
+  mkdir -p "$CAGE_STATE_DIR"
+  (
+    umask 077
+    gcloud auth print-access-token </dev/null 2>/dev/null >"$f.$$" || : >"$f.$$"
+    mv -f "$f.$$" "$f"
+  ) &
+  _CAGE_GCLOUD_PID=$!
 }
 
 # Produce a throwaway, READ-ONLY kubeconfig to mount, echoing its host path.
@@ -399,6 +424,14 @@ _cage_add_mounts() {
   # lets _cage_bind read it while we're on the stack.
   local -A _CAGE_SEEN_DESTS=()
   local _CAGE_MOUNT_CWD_DEST=""
+
+  # The per-session brokers (bound at the end) take ~0.1 s each to come up, so
+  # launch them all now and only wait for their sockets once everything else is
+  # assembled.
+  local bus_sock clip_sock display_dir
+  bus_sock="$(_cage_dbus_proxy_launch)" || bus_sock=""
+  clip_sock="$(_cage_clip_broker_launch)" || clip_sock=""
+  display_dir="$(_cage_display_broker_launch)" || display_dir=""
 
   # --mount-cwd: bind the current dir (rw) at the same host path so a session can
   # run from outside the work roots (-w "$PWD" then resolves to real files).
@@ -528,6 +561,7 @@ _cage_add_mounts() {
 
   # Credentials — mount config FILES (not dirs) for tools that also write caches,
   # so caches land in container-private paths and the tool still works (DESIGN §7).
+  [ -n "${_CAGE_GCLOUD_PID:-}" ] && { wait "$_CAGE_GCLOUD_PID" || true; }
   _cage_bind ro "$(_cage_docker_config)" "$CAGE_HOME/.docker/config.json"
   _cage_bind ro "$HOME/.npmrc" "$CAGE_HOME/.npmrc"
   _cage_bind ro "$HOME/.config/NuGet" "$CAGE_HOME/.config/NuGet"
@@ -556,8 +590,8 @@ _cage_add_mounts() {
   # org.freedesktop.Notifications is reachable (DESIGN §9). Bound to a sibling path
   # (not $XDG_RUNTIME_DIR/bus) so the runtime tmpfs above doesn't shadow it. The bus
   # address is set only when the proxy is up: no proxy, no bus.
-  local bus_sock
-  if bus_sock="$(_cage_dbus_proxy_start)"; then
+  if [ -n "$bus_sock" ] && _cage_await_socket "$bus_sock" \
+    "D-Bus proxy didn't start; desktop notifications disabled in this session"; then
     _cage_bind ro "$bus_sock" "/run/cage/bus"
     RUN_ARGS+=(--env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cage/bus")
   fi
@@ -565,43 +599,50 @@ _cage_add_mounts() {
   # Image-only clipboard paste via a host broker (the cage's wl-paste is a shim
   # talking to it), rather than handing the cage the Wayland socket — which would
   # expose the whole clipboard, text included (DESIGN §9).
-  local clip_sock
-  if clip_sock="$(_cage_clip_broker_start)"; then
+  if [ -n "$clip_sock" ] && _cage_await_socket "$clip_sock" \
+    "clipboard broker didn't start; image paste won't work in this session"; then
     _cage_bind ro "$clip_sock" "/run/cage/clipboard.sock"
   fi
 
   # On-demand nested Weston for headed browsers (DESIGN §9). The dir holds only
   # the nested compositor's socket; ro so the cage can connect but not plant files.
-  local display_dir
-  if display_dir="$(_cage_display_broker_start)"; then
+  if [ -n "$display_dir" ] && _cage_await_socket "$display_dir.sock" \
+    "display broker didn't start; headed browsers won't work in this session"; then
     _cage_bind ro "$display_dir" "/run/cage/display"
     _cage_bind ro "$display_dir.sock" "/run/cage/display.sock"
   fi
 }
 
-# Start the session's clipboard broker, echoing its socket path. It watches $$ —
-# the wrapper, which execs into podman — and exits when the session ends.
-_cage_clip_broker_start() {
+# Wait up to 2 s for a broker's socket to appear, warning with $2 if it doesn't.
+# The brokers start concurrently, so their waits overlap.
+_cage_await_socket() {
+  local _
+  for _ in $(seq 1 100); do
+    [ -S "$1" ] && return 0
+    sleep 0.02
+  done
+  cage_err "$2"
+  return 1
+}
+
+# Launch the session's clipboard broker, echoing its socket path (it may not exist
+# yet — see _cage_await_socket). It watches $$ — the wrapper, which execs into
+# podman — and exits when the session ends.
+_cage_clip_broker_launch() {
   command -v python3 >/dev/null || return 1
   local dir="${XDG_RUNTIME_DIR:-/tmp}/agent-cage"
   local sock="$dir/clip-$$.sock"
   mkdir -p -m 700 "$dir" || return 1
   setsid -f python3 "$(dirname "${BASH_SOURCE[0]}")/_cage-clip-broker" "$sock" "$$" \
     </dev/null >/dev/null 2>&1 || return 1
-  local _
-  for _ in $(seq 1 20); do
-    [ -S "$sock" ] && printf '%s' "$sock" && return 0
-    sleep 0.1
-  done
-  cage_err "clipboard broker didn't start; image paste won't work in this session"
-  return 1
+  printf '%s' "$sock"
 }
 
-# Start the session's display broker, echoing the dir its nested Weston will put
+# Launch the session's display broker, echoing the dir its nested Weston will put
 # its socket in (the broker's own socket is that path + .sock). Like the
 # clipboard broker it watches $$. No /tmp fallback: everything here must stay out
 # of anything the cage can see except the two binds.
-_cage_display_broker_start() {
+_cage_display_broker_launch() {
   [ "$CAGE_DISPLAY" = "0" ] && return 1
   command -v python3 >/dev/null && command -v weston >/dev/null || return 1
   [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ] && [ -n "${WAYLAND_DISPLAY:-}" ] || return 1
@@ -614,19 +655,13 @@ _cage_display_broker_start() {
   setsid -f python3 "$(dirname "${BASH_SOURCE[0]}")/_cage-display-broker" \
     "$ddir.sock" "$$" "$ddir" "$host_wl" "$dir/display-$$.log" \
     </dev/null >/dev/null 2>&1 || return 1
-  local _
-  for _ in $(seq 1 20); do
-    [ -S "$ddir.sock" ] && printf '%s' "$ddir" && return 0
-    sleep 0.1
-  done
-  cage_err "display broker didn't start; headed browsers won't work in this session"
-  return 1
+  printf '%s' "$ddir"
 }
 
-# Start the session's filtered D-Bus proxy, echoing its socket path. Like the clipboard
+# Launch the session's filtered D-Bus proxy, echoing its socket path. Like the clipboard
 # broker it watches $$ and goes away with the session. Fails closed: without
 # xdg-dbus-proxy the cage gets no bus at all.
-_cage_dbus_proxy_start() {
+_cage_dbus_proxy_launch() {
   if ! command -v xdg-dbus-proxy >/dev/null; then
     cage_err "xdg-dbus-proxy not installed; desktop notifications disabled (sudo dnf install xdg-dbus-proxy)"
     return 1
@@ -638,13 +673,7 @@ _cage_dbus_proxy_start() {
   [ -n "${CAGE_DBUS_LOG:-}" ] && log="$dir/dbus-$$.log"
   setsid -f "$(dirname "${BASH_SOURCE[0]}")/_cage-dbus-proxy" "$sock" "$$" "$upstream" "$log" \
     </dev/null >/dev/null 2>&1 || return 1
-  local _
-  for _ in $(seq 1 20); do
-    [ -S "$sock" ] && printf '%s' "$sock" && return 0
-    sleep 0.1
-  done
-  cage_err "D-Bus proxy didn't start; desktop notifications disabled in this session"
-  return 1
+  printf '%s' "$sock"
 }
 
 # Echo half of a podman --memory value (e.g. 4g, 512m, 1073741824) in MiB.
@@ -829,26 +858,37 @@ cage_sidecar_start() {
 # and one whose host dir was deleted + recreated (e.g. /tmp/claude-<uid>) still
 # holds the old, now-detached dir. Either way docker would silently see an empty
 # dir, so compare inodes with the host.
-_cage_sidecar_mounts_current() {
-  local dir
+#
+# Runs on every launch, so the health check and all the inode reads share ONE
+# `podman exec` (each costs 0.1-0.2 s). Returns 2 when the sidecar isn't running
+# or its daemon doesn't respond, 1 when it's healthy but its mounts are stale.
+_cage_sidecar_check() {
+  local dir inodes rc=0
+  inodes="$(podman exec "$CAGE_SIDECAR_NAME" sh -c 'docker info >/dev/null 2>&1 || exit 99; stat -c %i "$@"' \
+    sh "${CAGE_SIDECAR_SHARED_DIRS[@]}" 2>/dev/null)" || rc=$?
+  case "$rc" in
+  0) ;;
+  1) return 1 ;; # stat: a shared dir is missing inside the sidecar
+  *) return 2 ;; # 99 = daemon down; podman's own 125-127 = not running/absent
+  esac
   for dir in "${CAGE_SIDECAR_SHARED_DIRS[@]}"; do
     [ -d "$dir" ] || return 1
-    [ "$(podman exec "$CAGE_SIDECAR_NAME" stat -c %i "$dir" 2>/dev/null)" = "$(stat -c %i "$dir")" ] ||
-      return 1
   done
+  [ "$inodes" = "$(stat -c %i "${CAGE_SIDECAR_SHARED_DIRS[@]}")" ] || return 1
 }
 
 cage_sidecar_ensure() {
-  if podman container exists "$CAGE_SIDECAR_NAME"; then
-    if [ "$(podman inspect -f '{{.State.Running}}' "$CAGE_SIDECAR_NAME" 2>/dev/null)" = "true" ] &&
-      cage_sidecar_healthy; then
-      _cage_sidecar_mounts_current && return 0
-      cage_err "docker sidecar's shared dirs are missing or stale; recreating…"
-    else
+  local rc=0
+  _cage_sidecar_check || rc=$?
+  case "$rc" in
+  0) return 0 ;;
+  1) cage_err "docker sidecar's shared dirs are missing or stale; recreating…" ;;
+  *)
+    podman container exists "$CAGE_SIDECAR_NAME" &&
       cage_err "docker sidecar present but unhealthy; recreating…"
-    fi
-    podman rm -f "$CAGE_SIDECAR_NAME" >/dev/null 2>&1 || true
-  fi
+    ;;
+  esac
+  podman rm -f "$CAGE_SIDECAR_NAME" >/dev/null 2>&1 || true
   cage_sidecar_start
 }
 

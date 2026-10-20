@@ -58,6 +58,7 @@ done
 cmd="${1:-shell}"
 case "$cmd" in
 shell)
+  cage_prefetch_creds
   cage_lazy_pull
   cage_sidecar_ensure || cage_err "continuing without a healthy docker sidecar"
   declare -a RUN_ARGS

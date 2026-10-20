@@ -131,6 +131,7 @@ cage_mode_args "$MODE"
 cage_require_workdir
 
 # 3. Ensure the image is present (rate-limited pull) and 4. the sidecar is up.
+cage_prefetch_creds
 cage_lazy_pull
 cage_sidecar_ensure || cage_err "continuing without a healthy docker sidecar (testcontainers will fail)"
 
