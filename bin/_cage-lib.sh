@@ -112,10 +112,10 @@ CAGE_ETC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../etc" && pwd)"
 
 # Host dirs the docker sidecar bind-mounts (rw, identical path), i.e. the only
 # paths `docker run -v` sources can come from. Besides the work, the user's scratch
-# dir and Claude Code's scratchpads (/tmp/claude-<uid>), so temp files for
-# containers need not live in ~/code. All are already rw in the cage, so the
-# docker escape surface stays the same (DESIGN §8).
-CAGE_SIDECAR_SHARED_DIRS=("$HOME/code" "$HOME/tmp" "/tmp/claude-$(id -u)")
+# dir (which also holds Claude Code's scratchpads, ~/tmp/claude-<uid>), so temp
+# files for containers need not live in ~/code. Both are already rw in the cage,
+# so the docker escape surface stays the same (DESIGN §8).
+CAGE_SIDECAR_SHARED_DIRS=("$HOME/code" "$HOME/tmp")
 
 cage_err() { printf 'agent-cage: %s\n' "$*" >&2; }
 cage_die() {
@@ -488,15 +488,8 @@ _cage_add_mounts() {
   _cage_bind rw "$HOME/.local/share/pnpm/store" "$CAGE_HOME/.local/share/pnpm/store"
   _cage_bind rw "$HOME/.cache/pnpm" "$CAGE_HOME/.cache/pnpm"
 
-  # Share only Claude Code's scratchpad root with the host (rw, identical path),
-  # not all of /tmp: the host's /tmp holds other programs' sockets (X11, Chrome's
-  # SingletonSocket, …) that the cage must not reach. The cage's own /tmp is the
-  # image's (mode 1777, in the --rm container layer, so private and fresh per
-  # session); this bind just lands on top of it. mkdir with 0700, matching what
-  # Claude Code creates, so the bind isn't skipped on a fresh host.
-  mkdir -p -m 700 "/tmp/claude-$(id -u)" 2>/dev/null || true
-  _cage_bind rw "/tmp/claude-$(id -u)" "/tmp/claude-$(id -u)"
-  # And the user's personal scratch dir. mkdir so a fresh host still gets it
+  # The user's personal scratch dir, which also holds Claude Code's scratchpads
+  # (CLAUDE_CODE_TMPDIR, see _cage_add_envs). mkdir so a fresh host still gets it
   # (mirrors the pnpm store below).
   mkdir -p "$HOME/tmp" 2>/dev/null || true
   _cage_bind rw "$HOME/tmp" "$CAGE_HOME/tmp"
@@ -697,6 +690,10 @@ _cage_add_envs() {
     --env "XDG_RUNTIME_DIR=/run/user/1000"
     --env "TZ=Europe/Warsaw"
     --env "DISABLE_AUTOUPDATER=1"
+    # Scratchpads in ~/tmp/claude-<uid> instead of /tmp/claude-<uid>: the host's
+    # /tmp is a tmpfs, so agent scratch (often GBs) would eat RAM. ~/tmp is on
+    # disk and bound at the identical path, so host and sidecar see the same files.
+    --env "CLAUDE_CODE_TMPDIR=$CAGE_HOME/tmp"
   )
 
   # nproc and Python's os.cpu_count() report the host's cores, not the --cpus
@@ -855,7 +852,7 @@ cage_sidecar_start() {
 }
 
 # A sidecar created before a dir joined CAGE_SIDECAR_SHARED_DIRS lacks its mount,
-# and one whose host dir was deleted + recreated (e.g. /tmp/claude-<uid>) still
+# and one whose host dir was deleted + recreated (e.g. ~/tmp) still
 # holds the old, now-detached dir. Either way docker would silently see an empty
 # dir, so compare inodes with the host.
 #

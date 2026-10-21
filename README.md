@@ -112,8 +112,8 @@ lingering: `sudo loginctl enable-linger $USER`.
   **read-only**; credentials (including .NET user secrets), VCS identity, and the nvim
   config/data are read-only.
 - **Sidecar** (`DESIGN.md` §8): one shared rootless-docker container
-  (`docker:dind-rootless`), bounded to `~/code`, `~/tmp` and Claude's scratchpads
-  (`/tmp/claude-1000`), exposing a socket the cage reaches via `DOCKER_HOST`.
+  (`docker:dind-rootless`), bounded to `~/code` and `~/tmp` (which also holds Claude's
+  scratchpads, `~/tmp/claude-1000`), exposing a socket the cage reaches via `DOCKER_HOST`.
   Started/managed entirely by the wrappers.
 - **Cage instructions:** `etc/cage-claude.md` is mounted read-only as Claude Code's managed
   `/etc/claude-code/CLAUDE.md`, telling cage sessions (and only them) about the environment's
@@ -176,8 +176,8 @@ being edited, not what `kubectl` could do against the API. Instead:
   such sessions. To work elsewhere,
   pass `--mount-cwd`, which bind-mounts the current dir into the cage **read-write** at the
   same path. If that dir is otherwise mounted read-only (e.g. `~/.config/nvim`), the
-  read-write cwd mount takes precedence. The docker sidecar still only sees `~/code`, `~/tmp`
-  and `/tmp/claude-1000`, so testcontainers bind-mounting an ad-hoc cwd won't reach it. (`DESIGN.md` §6/§8)
+  read-write cwd mount takes precedence. The docker sidecar still only sees `~/code` and `~/tmp`,
+  so testcontainers bind-mounting an ad-hoc cwd won't reach it. (`DESIGN.md` §6/§8)
 - **Headed browsers:** the nested Weston window shares no clipboard with your desktop, so
   type credentials into it directly. It starts only when the agent asks for it and closes
   with the session; the browser profile is a fresh, throwaway one each time. (`DESIGN.md` §9)

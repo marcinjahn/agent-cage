@@ -50,8 +50,8 @@ notifications, port access, testcontainers).
 
 - `~/code` (rw) and agent state in `~/.claude` (rw, _except_ the host-executed scripts —
   see below). The work and the agent state.
-- `~/tmp` and `/tmp/claude-1000` (Claude Code's scratchpads) (rw, shared with the host at
-  the identical path) — scratch space, deliberately not isolated so ad-hoc files pass
+- `~/tmp`, including Claude Code's scratchpads in `~/tmp/claude-1000` (rw, shared with the
+  host at the identical path) — scratch space, deliberately not isolated so ad-hoc files pass
   between host and cage. Anything another host process drops there is readable/writable by
   the cage, and vice versa. The rest of the host's `/tmp` (X11 sockets, browser singleton
   sockets, other programs' scratch files) is **not** visible: the cage's `/tmp` is its own
@@ -61,8 +61,8 @@ notifications, port access, testcontainers).
   below).
 - A nested Weston window on the desktop, only once the agent asks for one
   (`cage-display start`, §9) — what the user types into it is visible to the cage.
-- Anything reachable through the **docker sidecar**, bounded to `~/code`, `~/tmp` and
-  `/tmp/claude-1000` (see §8) — all of which the cage can already write.
+- Anything reachable through the **docker sidecar**, bounded to `~/code` and `~/tmp`
+  (see §8) — both of which the cage can already write.
 
 **Closed escape path — host-executed `~/.claude` scripts (read-only in cage):**
 `~/.claude` is mounted rw so sessions/history work, BUT `~/.claude/hooks/`,
@@ -330,8 +330,7 @@ Key points:
 
 | Host path                                        | Container path               | Mode   | Purpose                                                                  |
 | ------------------------------------------------ | ---------------------------- | ------ | ------------------------------------------------------------------------ |
-| `/tmp/claude-1000`                               | same                         | **rw** | Claude Code's scratchpads, shared between host and cage                  |
-| `~/tmp`                                          | same                         | **rw** | shared personal scratch dir between host and cage                        |
+| `~/tmp`                                          | same                         | **rw** | shared scratch dir between host and cage, incl. Claude's scratchpads     |
 | `~/code`                                         | `/home/mnj/code`             | **rw** | the work                                                                 |
 | `~/.claude`                                      | `/home/mnj/.claude`          | **rw** | sessions, history, creds — but with ro overlays below                    |
 | `~/.claude/hooks`                                | same                         | **ro** | host-executed; ro prevents host-escape poisoning (§2)                    |
@@ -365,11 +364,14 @@ Key points:
 | `$XDG_RUNTIME_DIR/agent-cage/display-<pid>.sock` | `/run/cage/display.sock`     | ro     | on-demand nested display broker (§9; only when `weston` is installed)    |
 | `$XDG_RUNTIME_DIR/agent-cage/display-<pid>/`     | `/run/cage/display`          | ro     | nested Weston's runtime dir: holds only its `wayland-0` socket (§9)      |
 
-**`/tmp`:** only `/tmp/claude-<uid>` is shared (the wrapper creates it `0700` first, so
-the bind is never skipped); the docker sidecar shares the same dir (§8). The rest of the
-cage's `/tmp` is the image's own directory (root-owned, mode 1777) in the `--rm`
-container's writable layer: private to the session, discarded with it, and backed by disk
-rather than a memory-charged tmpfs. The scratchpad bind is nested on top of it. Sharing all
+**`/tmp`:** nothing from the host's `/tmp` is shared. The cage's `/tmp` is the image's own
+directory (root-owned, mode 1777) in the `--rm` container's writable layer: private to the
+session, discarded with it, and backed by disk rather than a memory-charged tmpfs. Claude
+Code's scratchpads, which would default to `/tmp/claude-<uid>`, are moved to
+`~/tmp/claude-<uid>` with `CLAUDE_CODE_TMPDIR=~/tmp` so they stay shared with the host (and
+the docker sidecar, §8) at the identical path. They used to be a bind of the host's
+`/tmp/claude-<uid>`, but the host's `/tmp` is a tmpfs: agent scratch (build outputs,
+screenshots, clones; easily 10+ GB) sat in RAM and pushed the host into swap. Sharing all
 of the host's `/tmp` used to expose its X11 socket directory, Chrome's `SingletonSocket`
 (which can make the host browser open URLs) and other programs' sockets.
 
@@ -532,12 +534,11 @@ mounts `etc/sidecar-subid` (`rootless:1001:64535`, fitted to the keep-id window)
 named volume mounted at `/sock` in both the sidecar and every cage session. Sessions get
 `DOCKER_HOST=unix:///sock/docker.sock`.
 
-**Safety (critical):** the sidecar mounts **only `~/code`, `~/tmp` and
-`/tmp/claude-1000`** (rw, at the identical paths; `CAGE_SIDECAR_SHARED_DIRS`) — required
+**Safety (critical):** the sidecar mounts **only `~/code` and `~/tmp`** (rw, at the identical paths; `CAGE_SIDECAR_SHARED_DIRS`) — required
 so `docker run -v` / testcontainers binds referencing those paths resolve inside the
 daemon's filesystem (a `-v` source anywhere else silently becomes an empty dir there).
-`~/tmp` and Claude Code's scratchpads (`/tmp/claude-<uid>`) are included so temp files for
-containers needn't be dropped into `~/code`. All three are already rw in the cage, and root
+`~/tmp` (which also holds Claude Code's scratchpads, `~/tmp/claude-<uid>`) is included so
+temp files for containers needn't be dropped into `~/code`. Both are already rw in the cage, and root
 in a nested container maps to uid 1000, so a docker bind-mount escape reaches nothing the
 cage can't already write. Do **not** give the sidecar broader mounts (in particular not all
 of `/tmp`: the sidecar keeps its own rootlesskit state there).
@@ -791,8 +792,8 @@ Implement, then verify each of these empirically:
       connection are denied; `/run/user/1000/bus` doesn't exist.
 - [ ] **Image paste** (Ctrl+V) works in `claude-cage`; `wl-paste` in the cage returns
       nothing for copied text.
-- [ ] **Private `/tmp`**: in the cage `/tmp` is mode 1777 and writable, `/tmp/claude-1000`
-      is the host's (files appear on both sides), and the host's `/tmp/.X11-unix` and other
+- [ ] **Private `/tmp`**: in the cage `/tmp` is mode 1777 and writable, Claude's scratchpad
+      is under `~/tmp/claude-1000` (files appear on both sides), and the host's `/tmp/.X11-unix` and other
       host `/tmp` entries are absent.
 - [ ] **Headed browser**: `cage-display start`, then
       `XDG_SESSION_TYPE=wayland WAYLAND_DISPLAY=/run/cage/display/wayland-0 playwright-cli open --headed --browser chrome https://accounts.google.com`
