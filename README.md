@@ -38,6 +38,8 @@ and rationale.
 - **Podman** (rootless). `docker` is not required on the host.
 - **`xdg-dbus-proxy`** (Fedora package of the same name) for desktop notifications; without
   it the cage starts with notifications disabled.
+- **`acli`** and **`bwrap`** (`bubblewrap`) on the host for acli in the cage: the cage's
+  `acli` runs the host's, sandboxed, with your host login (`DESIGN.md` §9). Log in on the host.
 - Optional: **`weston`** (`sudo dnf install weston`) for headed browsers. With it installed
   and a Wayland desktop session, the agent can run `cage-display start` to open a nested
   Weston window on your desktop and show a browser in it (e.g. for an SSO sign-in you

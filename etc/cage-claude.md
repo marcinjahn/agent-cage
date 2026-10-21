@@ -17,6 +17,10 @@ from Claude Code's sandbox; disabling the sandbox won't help.
 - Networking is the host's: ports you bind are host ports, shared with other sessions.
   Ports below 1024 can't be bound. Host and other sessions' processes are invisible, so
   if a port is busy, pick another one instead of looking for its owner.
+- `acli` runs on the host with the user's login. Files you pass it (`--body-file`, …)
+  must be under `~/code` or `~/tmp` (e.g. your scratchpad), not `/tmp`. `acli auth`
+  (other than `status`) and `acli rovodev` are refused; if acli says it's logged out,
+  ask the user to log in on the host.
 
 ## Headed browser (e.g. an SSO sign-in the user completes)
 

@@ -84,12 +84,14 @@ give the cage its own network namespace (pasta), which also prepares the egress 
 (§10).
 
 **Accepted risk — secret exfiltration (not mitigated for now):** the cage mounts
-credentials (docker/npm/nuget/.NET user secrets/acli/gh, and the Claude token in
+credentials (docker/npm/nuget/.NET user secrets/gh, and the Claude token in
 `~/.claude/.credentials.json`) readable by a full-permissions agent, with **open network
 egress** (§10). The cage prevents _destruction_ of host data but does **not** prevent an
 injected prompt from _reading those secrets and sending them out_. Accepted deliberately
 for now; revisit with an egress allowlist and/or a minimal credential set if it becomes a
-concern. Mitigation hooks are noted in §10/§7 for when that day comes.
+concern. Mitigation hooks are noted in §10/§7 for when that day comes. acli is the
+exception: its OAuth tokens stay in the host keyring and the cage only gets to run
+commands through a host broker (§9), so they can't be copied out.
 
 **Explicitly rejected** (do not implement): mounting the host's rootful
 `/var/run/docker.sock`, or running the cage `--privileged`. Either reintroduces
@@ -144,8 +146,8 @@ implementation time; do not hardcode beyond what's noted.
   - `WorktreeCreate`/`WorktreeRemove` → scripts. `statusLine` → `statusline-command.sh`.
 - Toolchains the cage must provide (host locations are irrelevant — reinstall fresh):
   dotnet, node (multiple, via `.nvmrc`), formatters **csharpier / prettier / stylua /
-  eslint**, plus `jq git jj gh acli`. (`acli` and `gh` are system binaries on
-  host — must be installed in the image.)
+  eslint**, plus `jq git jj gh acli`. (`gh` is a system binary on host — must be
+  installed in the image. `acli` is forwarded to the host's binary, §9.)
 - `~/scripts` — used by skills; contains `limited` (a CPU/mem limiter wrapper).
 - Symlinks under `~/code` all point into **`~/.local/share/puff/projects/`** (created by
   the user's `puff` tool). That single dir must be readable for symlinks to resolve.
@@ -188,8 +190,8 @@ mason-compiled nvim formatters — run correctly).
 1. Create user `mnj` with uid/gid **1000**, home `/home/mnj`, login shell `bash`.
 2. System packages: `git jq gh libnotify` + nvim (latest upstream release, not Fedora's package) + build basics + fuse-overlayfs
    (for rootless docker) + network tools (ping, dig/nslookup, ip/ss, traceroute,
-   mtr, nmap, nc, tcpdump, socat, whois, wget, telnet, lsof) + `acli` (install
-   per Atlassian's Linux instructions).
+   mtr, nmap, nc, tcpdump, socat, whois, wget, telnet, lsof). No real `acli`: the
+   image ships a shim that runs the host's (§9).
 3. **dotnet SDK:** **.NET 10** only. Add more versions later via the extra-toolchains
    block (below) if needed.
 4. **node via `fnm`:** install `fnm`; install the **latest LTS** node as the default.
@@ -355,12 +357,12 @@ Key points:
 | `~/.nuget/packages`                              | same                         | **rw** | shared restore cache — reuse host-downloaded packages                    |
 | `~/.local/share/pnpm/store`                      | same                         | **rw** | shared pnpm store — same fs as `~/code` so hardlinks work                |
 | `~/.cache/pnpm`                                  | same                         | **rw** | pnpm metadata cache                                                      |
-| `~/.config/acli`                                 | same                         | ro     | acli auth                                                                |
 | `~/.config/gh`                                   | same                         | ro     | gh auth (also enables GitHub https push — §7 VCS note)                   |
 | `~/.context7/credentials.json`                   | same (file)                  | ro     | Context7 CLI (`ctx7`) OAuth tokens                                       |
 | `<repo>/etc/cage-claude.md`                      | `/etc/claude-code/CLAUDE.md` | ro     | cage-only agent instructions (managed CLAUDE.md, §8)                     |
 | `$XDG_RUNTIME_DIR/agent-cage/dbus-<pid>.sock`    | `/run/cage/bus`              | ro     | filtered session bus, Notifications only (§9; outside the runtime tmpfs) |
 | `$XDG_RUNTIME_DIR/agent-cage/clip-<pid>.sock`    | `/run/cage/clipboard.sock`   | ro     | image-only clipboard broker (§9)                                         |
+| `$XDG_RUNTIME_DIR/agent-cage/acli-<pid>.sock`    | `/run/cage/acli.sock`        | ro     | acli broker: runs the host's acli, tokens stay in its keyring (§9)       |
 | `$XDG_RUNTIME_DIR/agent-cage/display-<pid>.sock` | `/run/cage/display.sock`     | ro     | on-demand nested display broker (§9; only when `weston` is installed)    |
 | `$XDG_RUNTIME_DIR/agent-cage/display-<pid>/`     | `/run/cage/display`          | ro     | nested Weston's runtime dir: holds only its `wayland-0` socket (§9)      |
 
@@ -407,7 +409,7 @@ for 15 min so a logged-out gcloud doesn't slow every launch. A stale cache is re
 the background while the sidecar is checked (§6).
 
 **Future exfil mitigation hook:** to later reduce the credential blast radius (§2), drop
-the rarely-needed cred mounts (e.g. acli) and/or pair with an egress allowlist (§10).
+the rarely-needed cred mounts and/or pair with an egress allowlist (§10).
 
 Notes:
 
@@ -647,6 +649,43 @@ plus a general compositor connection. Instead:
 Residual exposure: anything in the cage can still read a clipboard **image** at any time
 during the session (not only on Ctrl+V) — e.g. a screenshot you copied for something else.
 
+### acli (host broker)
+
+acli keeps its OAuth tokens in the host keyring (Secret Service over D-Bus, via
+`zalando/go-keyring`; `~/.config/acli` holds only profile metadata). Letting
+`org.freedesktop.secrets` through the bus filter would expose the **whole** keyring — the
+proxy can't narrow it to acli's items, whose object paths aren't predictable — and a
+copy of the tokens in the cage would let an injected prompt walk off with a long-lived
+refresh token (and, since Atlassian rotates refresh tokens, a refresh inside the cage
+would log the host out). Instead the cage never sees the tokens:
+
+- The wrapper starts a per-session **host broker** (`bin/_cage-acli-broker`, python3) on a
+  `0600` socket under `$XDG_RUNTIME_DIR/agent-cage/`, mounted at `/run/cage/acli.sock`.
+  The image's **`acli`** (`etc/acli` → `/usr/local/bin/acli`) is a shim that sends its
+  argv, cwd and stdin there and relays stdout/stderr/exit code. A shim killed mid-command
+  (Ctrl+C, timeout) hangs up, and the broker kills the command.
+- The broker runs the host's `acli` under **`bwrap`**: `/usr`, `/etc` ro; network shared;
+  new pid/ipc/uts/user namespaces, `--new-session`, empty env; `$HOME` an empty tmpfs with
+  only `~/.config/acli` (rw — acli updates it on token refresh) and the cage's rw work
+  roots (plus a `--mount-cwd` dir) bound **ro**. File flags (`--body-file …`) therefore
+  reach nothing the cage couldn't already read. Paths only the cage has (its private
+  `/tmp`) don't exist there — use the scratchpad under `~/tmp`. The command's cwd is the
+  shim's when it's under those dirs, else `$HOME`.
+- Its session bus is a second, lazily started `xdg-dbus-proxy` with only
+  `--talk=org.freedesktop.secrets`. acli itself is trusted not to wander the keyring; the
+  filter keeps everything else on the bus (systemd1, portals, …) out of reach.
+- Refused before anything runs: any top-level command but `jira`, `confluence`, `admin`,
+  `guard`, `auth`, `help` (so no `rovodev` — an agent running on the host — no `config`,
+  no `feedback`), and any `auth` subcommand but `status` (logging in/out/switching stays
+  on the host).
+- Fails closed: without `bwrap`, `xdg-dbus-proxy` or a host `acli`, the command is refused
+  with a message; without the broker the shim says so. The broker watches the wrapper's
+  pid and, when the session ends, kills running commands and its bus proxy and removes
+  both sockets.
+
+Residual exposure: for the session's lifetime the agent can do in Jira/Confluence whatever
+your account can (as before), but not beyond it.
+
 ### Headed browser display (nested Weston, on demand)
 
 Some flows need the user to see and use the browser the agent drives (an SSO sign-in, a
@@ -763,7 +802,8 @@ hook, or shell-prompt customization.
 | Formatting hook (nvim)                               | Fedora base + ro mounts of nvim config/data + formatters on PATH      |
 | `CLAUDE_NO_FORMAT` etc.                              | Wrapper forwards `--env`                                              |
 | Bidirectional port-forward                           | `--network host`                                                      |
-| Auth: docker/npm/nuget/.NET user secrets/gh/acli/MCP | ro config mounts + shared `~/.claude.json` (MCP) + sidecar for docker |
+| Auth: docker/npm/nuget/.NET user secrets/gh/MCP      | ro config mounts + shared `~/.claude.json` (MCP) + sidecar for docker |
+| Auth: acli                                           | host acli broker (bwrap, keyring-only bus) + `acli` shim in image (§9) |
 
 ---
 
@@ -792,6 +832,10 @@ Implement, then verify each of these empirically:
       connection are denied; `/run/user/1000/bus` doesn't exist.
 - [ ] **Image paste** (Ctrl+V) works in `claude-cage`; `wl-paste` in the cage returns
       nothing for copied text.
+- [ ] **acli**: `acli jira auth status` and a `jira workitem view` work in the cage with
+      the host's login; `acli rovodev` and `acli jira auth logout` are refused; a
+      `--body-file ~/.ssh/…` path doesn't exist for it; Ctrl+C on a running command stops
+      it on the host.
 - [ ] **Private `/tmp`**: in the cage `/tmp` is mode 1777 and writable, Claude's scratchpad
       is under `~/tmp/claude-1000` (files appear on both sides), and the host's `/tmp/.X11-unix` and other
       host `/tmp` entries are absent.

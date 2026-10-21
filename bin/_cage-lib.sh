@@ -428,9 +428,10 @@ _cage_add_mounts() {
   # The per-session brokers (bound at the end) take ~0.1 s each to come up, so
   # launch them all now and only wait for their sockets once everything else is
   # assembled.
-  local bus_sock clip_sock display_dir
+  local bus_sock clip_sock display_dir acli_sock
   bus_sock="$(_cage_dbus_proxy_launch)" || bus_sock=""
   clip_sock="$(_cage_clip_broker_launch)" || clip_sock=""
+  acli_sock="$(_cage_acli_broker_launch)" || acli_sock=""
   display_dir="$(_cage_display_broker_launch)" || display_dir=""
 
   # --mount-cwd: bind the current dir (rw) at the same host path so a session can
@@ -559,7 +560,6 @@ _cage_add_mounts() {
   _cage_bind ro "$HOME/.npmrc" "$CAGE_HOME/.npmrc"
   _cage_bind ro "$HOME/.config/NuGet" "$CAGE_HOME/.config/NuGet"
   _cage_bind ro "$HOME/.microsoft/usersecrets" "$CAGE_HOME/.microsoft/usersecrets"
-  _cage_bind ro "$HOME/.config/acli" "$CAGE_HOME/.config/acli"
   _cage_bind ro "$HOME/.config/gh" "$CAGE_HOME/.config/gh"
   # Context7 CLI (ctx7) OAuth tokens. Just the credentials file (ro), so the dir
   # is the tool's own writable container path for anything else it caches.
@@ -597,6 +597,13 @@ _cage_add_mounts() {
     _cage_bind ro "$clip_sock" "/run/cage/clipboard.sock"
   fi
 
+  # acli via a host broker (the cage's acli is a shim talking to it): its OAuth
+  # tokens live in the host keyring, which the filtered bus above doesn't expose.
+  if [ -n "$acli_sock" ] && _cage_await_socket "$acli_sock" \
+    "acli broker didn't start; acli won't work in this session"; then
+    _cage_bind ro "$acli_sock" "/run/cage/acli.sock"
+  fi
+
   # On-demand nested Weston for headed browsers (DESIGN §9). The dir holds only
   # the nested compositor's socket; ro so the cage can connect but not plant files.
   if [ -n "$display_dir" ] && _cage_await_socket "$display_dir.sock" \
@@ -627,6 +634,21 @@ _cage_clip_broker_launch() {
   local sock="$dir/clip-$$.sock"
   mkdir -p -m 700 "$dir" || return 1
   setsid -f python3 "$(dirname "${BASH_SOURCE[0]}")/_cage-clip-broker" "$sock" "$$" \
+    </dev/null >/dev/null 2>&1 || return 1
+  printf '%s' "$sock"
+}
+
+# Launch the session's acli broker, echoing its socket path. Like the clipboard
+# broker it watches $$. The host acli it runs may read only what the cage itself
+# can: the work roots and a --mount-cwd dir.
+_cage_acli_broker_launch() {
+  command -v python3 >/dev/null || return 1
+  local dir="${XDG_RUNTIME_DIR:-/tmp}/agent-cage"
+  local sock="$dir/acli-$$.sock"
+  local readable=("${CAGE_WORK_ROOTS[@]}")
+  [ "$CAGE_MOUNT_CWD" = "1" ] && readable+=("$PWD")
+  mkdir -p -m 700 "$dir" || return 1
+  setsid -f python3 "$(dirname "${BASH_SOURCE[0]}")/_cage-acli-broker" "$sock" "$$" "${readable[@]}" \
     </dev/null >/dev/null 2>&1 || return 1
   printf '%s' "$sock"
 }

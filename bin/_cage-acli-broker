@@ -1,0 +1,284 @@
+#!/usr/bin/env python3
+# Host-side acli broker for a cage session (DESIGN §9).
+#
+# Usage: _cage-acli-broker <socket-path> <pid-to-watch> <readable-dir>...
+#
+# acli keeps its OAuth tokens in the host keyring (Secret Service), which the
+# cage's filtered bus deliberately can't reach. The cage's `acli` is a shim
+# (etc/acli) that forwards its argv, cwd and stdin here; the broker runs the
+# host's acli and streams stdout/stderr/exit code back, so the tokens never
+# enter the cage and refreshes land in the host keyring.
+#
+# The host acli runs under bwrap: /usr and /etc read-only, an empty $HOME with
+# only ~/.config/acli (rw) and the <readable-dir>s (ro — dirs the cage can
+# already read, so file flags like --body-file can't reach anything new), and a
+# session bus that only reaches org.freedesktop.secrets. Commands that change
+# the login or run code (`rovodev`) are refused. Exits (killing running
+# commands and the bus proxy, removing the socket) once the watched pid — the
+# wrapper, which execs into podman — is gone.
+#
+# Protocol: frames of <1-byte type><4-byte big-endian length><payload>.
+#   cage -> host:  A <json {"argv": [...], "cwd": "..."}>, then I <stdin bytes>…, E (stdin EOF)
+#   host -> cage:  O <stdout bytes> / R <stderr bytes> …, then X <exit code as text>
+
+import json
+import os
+import shutil
+import socket
+import struct
+import subprocess
+import sys
+import threading
+import time
+
+ALLOWED_COMMANDS = {"jira", "confluence", "admin", "guard", "auth", "help"}
+MAX_FRAME = 16 << 20
+
+proxy_lock = threading.Lock()
+proxy = None
+children = set()
+children_lock = threading.Lock()
+
+
+class Refused(Exception):
+    pass
+
+
+def recv_exact(conn, n):
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = conn.recv(n - len(buf))
+        if not chunk:
+            raise EOFError
+        buf += chunk
+    return bytes(buf)
+
+
+def recv_frame(conn):
+    kind, length = struct.unpack(">cI", recv_exact(conn, 5))
+    if length > MAX_FRAME:
+        raise EOFError
+    return kind, recv_exact(conn, length)
+
+
+def send_frame(conn, lock, kind, payload):
+    with lock:
+        conn.sendall(struct.pack(">cI", kind, len(payload)) + payload)
+
+
+def check_argv(argv):
+    if any(not isinstance(a, str) or "\0" in a for a in argv):
+        raise Refused("invalid arguments")
+    positional = [a for a in argv if not a.startswith("-")]
+    if positional and positional[0] not in ALLOWED_COMMANDS:
+        raise Refused(f"`acli {positional[0]}` is not available in the cage")
+    for i, arg in enumerate(argv):
+        if arg == "auth" and (argv[i + 1 : i + 2] or [""])[0] not in ("status", "-h", "--help"):
+            raise Refused("only `auth status` is available in the cage; log in on the host")
+
+
+def under(path, roots):
+    return any(path == r or path.startswith(r.rstrip("/") + "/") for r in roots)
+
+
+def secrets_bus():
+    global proxy
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    upstream = os.environ.get("DBUS_SESSION_BUS_ADDRESS") or f"unix:path={runtime}/bus"
+    sock = f"{os.path.dirname(SOCKET_PATH)}/acli-bus-{WATCH_PID}.sock"
+    with proxy_lock:
+        if proxy is None or proxy.poll() is not None:
+            if not shutil.which("xdg-dbus-proxy"):
+                raise Refused("xdg-dbus-proxy is not installed on the host")
+            try:
+                os.unlink(sock)
+            except FileNotFoundError:
+                pass
+            proxy = subprocess.Popen(
+                ["xdg-dbus-proxy", upstream, sock, "--filter", "--talk=org.freedesktop.secrets"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        for _ in range(250):
+            if os.path.exists(sock):
+                return sock
+            if proxy.poll() is not None:
+                break
+            time.sleep(0.02)
+    raise Refused("couldn't start the keyring bus proxy on the host")
+
+
+def bwrap_cmd(argv, cwd):
+    if not shutil.which("bwrap"):
+        raise Refused("bubblewrap (bwrap) is not installed on the host")
+    acli = shutil.which("acli")
+    if not acli:
+        raise Refused("acli is not installed on the host")
+    acli = os.path.realpath(acli)
+    home = os.path.expanduser("~")
+    config = os.path.join(home, ".config", "acli")
+    os.makedirs(config, mode=0o700, exist_ok=True)
+    runtime = f"/run/user/{os.getuid()}"
+    bus = secrets_bus()
+
+    cmd = ["bwrap", "--unshare-all", "--share-net", "--die-with-parent", "--new-session"]
+    cmd += ["--ro-bind", "/usr", "/usr", "--ro-bind", "/etc", "/etc"]
+    for d in ("/bin", "/sbin", "/lib", "/lib64"):
+        if os.path.islink(d):
+            cmd += ["--symlink", os.readlink(d), d]
+        elif os.path.isdir(d):
+            cmd += ["--ro-bind", d, d]
+    # /etc/resolv.conf is a symlink into here on systemd-resolved hosts.
+    if os.path.isdir("/run/systemd/resolve"):
+        cmd += ["--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"]
+    cmd += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", home]
+    for root in READABLE:
+        cmd += ["--ro-bind", root, root]
+    cmd += ["--bind", config, config]
+    if not under(acli, ["/usr"]):
+        cmd += ["--ro-bind", acli, acli]
+    cmd += ["--dir", runtime, "--ro-bind", bus, f"{runtime}/bus"]
+    cmd += ["--chdir", cwd if under(cwd, READABLE) and os.path.isdir(cwd) else home]
+    cmd += ["--clearenv"]
+    for key, value in {
+        "HOME": home,
+        "USER": os.environ.get("USER", ""),
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "TERM": "dumb",
+        "XDG_RUNTIME_DIR": runtime,
+        "DBUS_SESSION_BUS_ADDRESS": f"unix:path={runtime}/bus",
+    }.items():
+        cmd += ["--setenv", key, value]
+    return cmd + ["--", acli, *argv]
+
+
+def kill(proc):
+    try:
+        os.killpg(proc.pid, 9)
+    except OSError:
+        pass
+
+
+def pump_output(stream, conn, lock, kind):
+    try:
+        while chunk := stream.read1(65536):
+            send_frame(conn, lock, kind, chunk)
+    except OSError:
+        pass
+
+
+def close_stdin(proc):
+    try:
+        proc.stdin.close()
+    except OSError:
+        pass
+
+
+def pump_input(conn, proc):
+    try:
+        while True:
+            kind, payload = recv_frame(conn)
+            if kind == b"I" and not proc.stdin.closed:
+                try:
+                    proc.stdin.write(payload)
+                    proc.stdin.flush()
+                except BrokenPipeError:
+                    close_stdin(proc)
+            elif kind == b"E":
+                close_stdin(proc)
+    except (EOFError, OSError):
+        pass
+    # The shim hangs up once it has the exit code; hanging up earlier means it was
+    # killed or timed out, so don't leave acli running.
+    close_stdin(proc)
+    if proc.poll() is None:
+        kill(proc)
+
+
+def handle(conn):
+    lock = threading.Lock()
+    with conn:
+        try:
+            kind, payload = recv_frame(conn)
+            if kind != b"A":
+                return
+            request = json.loads(payload)
+            argv, cwd = request["argv"], request["cwd"]
+            check_argv(argv)
+            cmd = bwrap_cmd(argv, os.path.realpath(cwd) if isinstance(cwd, str) else "")
+        except (EOFError, OSError, ValueError, KeyError, TypeError):
+            return
+        except Refused as e:
+            try:
+                send_frame(conn, lock, b"R", f"acli (agent-cage): {e}\n".encode())
+                send_frame(conn, lock, b"X", b"126")
+            except OSError:
+                pass
+            return
+
+        proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True
+        )
+        with children_lock:
+            children.add(proc)
+        threading.Thread(target=pump_input, args=(conn, proc), daemon=True).start()
+        out = threading.Thread(target=pump_output, args=(proc.stdout, conn, lock, b"O"))
+        err = threading.Thread(target=pump_output, args=(proc.stderr, conn, lock, b"R"))
+        out.start()
+        err.start()
+        out.join()
+        err.join()
+        code = proc.wait()
+        with children_lock:
+            children.discard(proc)
+        try:
+            send_frame(conn, lock, b"X", str(code if code >= 0 else 128 - code).encode())
+        except OSError:
+            pass
+
+
+def watch():
+    while True:
+        try:
+            os.kill(WATCH_PID, 0)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            pass
+        time.sleep(1)
+    with children_lock:
+        for proc in children:
+            kill(proc)
+    if proxy is not None:
+        proxy.kill()
+    for path in (SOCKET_PATH, f"{os.path.dirname(SOCKET_PATH)}/acli-bus-{WATCH_PID}.sock"):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    os._exit(0)
+
+
+def main():
+    global SOCKET_PATH, WATCH_PID, READABLE
+    SOCKET_PATH, WATCH_PID = sys.argv[1], int(sys.argv[2])
+    READABLE = [os.path.realpath(d) for d in sys.argv[3:] if os.path.isdir(d)]
+    try:
+        os.unlink(SOCKET_PATH)
+    except FileNotFoundError:
+        pass
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    old_umask = os.umask(0o177)
+    server.bind(SOCKET_PATH)
+    os.umask(old_umask)
+    server.listen(16)
+    threading.Thread(target=watch, daemon=True).start()
+    while True:
+        conn, _ = server.accept()
+        threading.Thread(target=handle, args=(conn,), daemon=True).start()
+
+
+if __name__ == "__main__":
+    main()

@@ -102,11 +102,6 @@ RUN NVIM_URL="$(curl -fsSL https://api.github.com/repos/neovim/neovim/releases/l
     && ln -sf /opt/nvim/bin/nvim /usr/local/bin/nvim \
     && rm -f /tmp/nvim.tgz
 
-# acli (Atlassian CLI) — per Atlassian's Linux instructions (single static binary).
-RUN curl -fsSL "https://acli.atlassian.com/linux/latest/acli_linux_amd64/acli" \
-        -o /usr/local/bin/acli \
-    && chmod +x /usr/local/bin/acli
-
 # jj (jujutsu) — latest release, musl static build.
 RUN JJ_URL="$(curl -fsSL https://api.github.com/repos/jj-vcs/jj/releases/latest \
         | jq -r '.assets[] | select(.name | test("x86_64-unknown-linux-musl.tar.gz$")) | .browser_download_url' \
@@ -281,6 +276,10 @@ RUN ln -sf /etc/cage/env.sh /etc/profile.d/cage.sh
 # Image-only clipboard paste: a wl-paste stand-in that talks to the host broker
 # (bin/_cage-clip-broker) instead of giving the cage the Wayland socket.
 COPY --chown=root:root --chmod=755 etc/wl-paste /usr/local/bin/wl-paste
+
+# acli stand-in that runs the host's acli through its broker
+# (bin/_cage-acli-broker), so the OAuth tokens stay in the host keyring.
+COPY --chown=root:root --chmod=755 etc/acli /usr/local/bin/acli
 
 # On-demand nested display for headed browsers: asks the host broker
 # (bin/_cage-display-broker) to start a Weston window on the user's desktop.

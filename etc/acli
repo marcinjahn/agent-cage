@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+# Stand-in for acli inside the cage (DESIGN §9). acli's OAuth tokens live in the
+# host keyring, which the cage can't reach, so this forwards argv, cwd and stdin
+# to the host's acli broker (bin/_cage-acli-broker) and relays its output and
+# exit code. See the broker for the protocol and what it refuses.
+
+import json
+import os
+import socket
+import struct
+import sys
+import threading
+
+SOCK = "/run/cage/acli.sock"
+
+
+def recv_exact(s, n):
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = s.recv(n - len(buf))
+        if not chunk:
+            raise EOFError
+        buf += chunk
+    return bytes(buf)
+
+
+def send_frame(s, lock, kind, payload):
+    with lock:
+        s.sendall(struct.pack(">cI", kind, len(payload)) + payload)
+
+
+def pump_stdin(s, lock):
+    try:
+        if not sys.stdin.isatty():
+            while chunk := os.read(0, 65536):
+                send_frame(s, lock, b"I", chunk)
+        send_frame(s, lock, b"E", b"")
+    except (OSError, ValueError):
+        pass
+
+
+def main(argv):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.connect(SOCK)
+    except OSError:
+        print("acli (agent-cage): the host acli broker isn't running in this session", file=sys.stderr)
+        return 1
+    lock = threading.Lock()
+    send_frame(s, lock, b"A", json.dumps({"argv": argv, "cwd": os.getcwd()}).encode())
+    threading.Thread(target=pump_stdin, args=(s, lock), daemon=True).start()
+    try:
+        while True:
+            kind, length = struct.unpack(">cI", recv_exact(s, 5))
+            payload = recv_exact(s, length)
+            if kind == b"O":
+                sys.stdout.buffer.write(payload)
+                sys.stdout.buffer.flush()
+            elif kind == b"R":
+                sys.stderr.buffer.write(payload)
+                sys.stderr.buffer.flush()
+            elif kind == b"X":
+                return int(payload)
+    except (EOFError, OSError):
+        print("acli (agent-cage): lost connection to the host acli broker", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
