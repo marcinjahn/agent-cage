@@ -59,7 +59,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
           # Forces the Dockerfile's "latest" installs (Claude Code, Copilot,
-          # ctx7, pnpm, ccusage) to actually re-run each build instead of
+          # ctx7, pnpm) to actually re-run each build instead of
           # replaying a stale gha-cached layer (see the Dockerfile comment) —
           # otherwise the daily schedule would rebuild without fetching anything new.
           build-args: CACHEBUST=${{ github.run_id }}

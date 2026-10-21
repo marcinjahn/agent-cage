@@ -12,7 +12,7 @@ build:
     # --format docker: the Dockerfile uses the SHELL instruction, which the
     # default OCI image format doesn't support (podman would warn and ignore it).
     # --build-arg CACHEBUST: forces the Dockerfile's "latest" installs (Claude
-    # Code, Copilot, ctx7, pnpm, ccusage) to actually re-run instead of
+    # Code, Copilot, ctx7, pnpm) to actually re-run instead of
     # replaying a stale cached layer (see the Dockerfile comment).
     podman build --format docker --build-arg CACHEBUST=$(date +%s) -t {{image}} .
 

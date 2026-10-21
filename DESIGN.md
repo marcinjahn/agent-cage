@@ -225,9 +225,7 @@ mason-compiled nvim formatters — run correctly).
    dependency is `libX11-xcb`. Playwright's **chromium-headless-shell** is installed the same
    way (headless `--browser=chromium`, and plain Playwright scripts' default headless
    Chromium); it needs no OS libraries beyond Chrome's. Playwright's full Chromium and WebKit
-   are not installed. Likewise
-   install **`ccusage`** (npm global, into a dedicated `/opt/ccusage` image-layer prefix) to
-   analyze Claude Code token usage/cost from the local session logs; no auth to bake.
+   are not installed.
 9. **Rootless docker engine** for the sidecar image (may be a _separate_ image — see §8).
 10. Set `TZ=Europe/Warsaw` (CET), `DISABLE_AUTOUPDATER=1`, and `COPILOT_AUTO_UPDATE=false`
     (keep the image-owned Copilot version from drifting in-session) as image env.
