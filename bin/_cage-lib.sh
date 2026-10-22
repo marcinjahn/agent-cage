@@ -565,6 +565,12 @@ _cage_add_mounts() {
   # is the tool's own writable container path for anything else it caches.
   _cage_bind ro "$HOME/.context7/credentials.json" "$CAGE_HOME/.context7/credentials.json"
 
+  # The host's CA trust (ro), once enable-mitmproxy has added its CA there, so TLS
+  # intercepted by the host's mitmproxy verifies in the cage too (DESIGN §9).
+  if [ -f /etc/pki/ca-trust/source/anchors/mitmproxy-ca-cert.pem ]; then
+    _cage_bind ro /etc/pki/ca-trust /etc/pki/ca-trust
+  fi
+
   # Read-only kubectl access (opt-in, see _cage_kube_config) — a generated
   # kubeconfig of short-lived, view-only tokens, never the real one.
   local kube_cfg

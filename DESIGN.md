@@ -225,7 +225,9 @@ mason-compiled nvim formatters — run correctly).
    dependency is `libX11-xcb`. Playwright's **chromium-headless-shell** is installed the same
    way (headless `--browser=chromium`, and plain Playwright scripts' default headless
    Chromium); it needs no OS libraries beyond Chrome's. Playwright's full Chromium and WebKit
-   are not installed.
+   are not installed. **mitmproxy** (`mitmdump`/`mitmproxy`/`mitmweb`, the latest
+   standalone release binaries in `/usr/local/bin`) renders flows read from the host's
+   mitmweb (§9).
 9. **Rootless docker engine** for the sidecar image (may be a _separate_ image — see §8).
 10. Set `TZ=Europe/Warsaw` (CET), `DISABLE_AUTOUPDATER=1`, and `COPILOT_AUTO_UPDATE=false`
     (keep the image-owned Copilot version from drifting in-session) as image env.
@@ -742,6 +744,40 @@ Residual exposure: whatever the user types or shows in the nested window (creden
 included) is visible to the cage, which drives the browser anyway. The cage can pop up a
 window whenever it likes during the session, and it can't do more than that.
 
+### mitmproxy (`mitm-run`)
+
+The user's host scripts `~/scripts/enable-mitmproxy` (iptables + transparent `mitmweb`,
+run by the user with sudo) and `~/scripts/mitm-run` (`sg mitm -c …`) intercept only
+traffic whose socket **fsgid** is the host `mitm` group. With `--network host`, that rule
+also sees the cage's sockets, so `mitm-run <cmd>` works in the cage once the cage's
+`sg mitm` produces the host `mitm` gid:
+
+- **GID alignment.** The cage can only use host gids inside its keep-id map. Adding the
+  `mitm` gid to `/etc/subgid` doesn't work: podman sorts subid ranges by start, so a low
+  system gid becomes container gid 0 and shifts every other gid (and needs
+  `podman system migrate`). Instead, `enable-mitmproxy` gives the host group the user's
+  **last default subgid** (`<subgid start> + 65535`), which keep-id always maps to
+  container gid **65536**, the top of its window. The image has `mitm:x:65536:mnj`, so
+  `sg mitm` (setuid `newgrp`) works. Podman also adds 65536 as a supplementary group of
+  every cage process, which is harmless because the rule matches only the fsgid. Nothing
+  else uses 65536: the sidecar's subids end at 65535 (§8).
+- **`USER=mnj`** is set in the image, because podman leaves it unset and `mitm-run`
+  checks membership with `id -nG "$USER"`.
+- **CA trust.** When the host has `/etc/pki/ca-trust/source/anchors/mitmproxy-ca-cert.pem`,
+  the wrapper binds the host's `/etc/pki/ca-trust` read-only over the image's. Then the
+  bundle `mitm-run` points `SSL_CERT_FILE` at, and the `NODE_EXTRA_CA_CERTS` file, both
+  include the mitmproxy CA. Host and image are both Fedora 43, so the host bundle is a
+  drop-in replacement.
+- **Reading flows.** `enable-mitmproxy` starts mitmweb with a per-run `web_password` that
+  it writes to `~/tmp/mitmweb-token`. The cage reads flows from mitmweb's API on
+  `127.0.0.1:8081` with `Authorization: Bearer <token>` (`GET /flows/dump?filter=…`) and
+  renders them with the image's `mitmdump -nr -`. POST endpoints (e.g. `/clear`) need an
+  XSRF cookie as well and aren't used.
+
+Residual exposure: while `enable-mitmproxy` runs, any cage process can join `mitm`. That
+lets it route its own traffic through the user's proxy and read every captured flow,
+including the host's own `mitm-run` traffic.
+
 ---
 
 ## 10. Networking
@@ -783,25 +819,25 @@ hook, or shell-prompt customization.
 
 ## 12. Requirement → mechanism (traceability)
 
-| Original requirement                                 | Mechanism                                                             |
-| ---------------------------------------------------- | --------------------------------------------------------------------- |
-| Host `~/.claude` settings apply                      | `~/.claude` rw bind mount                                             |
-| Install tools in cage, persist                       | Baked image + shared volumes (fnm versions, global prefix, caches)    |
-| Still use host claude normally                       | Separate `claude-cage` command; host untouched                        |
-| Access all of `~/code`                               | `~/code` rw mount                                                     |
-| Copy/paste host absolute paths (within `~/code`)     | Identical `/home/mnj/code` path via `--userns=keep-id`                |
-| Start from cwd                                       | `podman run -w "$PWD"`                                                |
-| Works like normal, different command                 | `claude-cage` wrapper                                                 |
-| Symlinks outside `~/code`                            | `~/.local/share/puff/projects` ro mount (covers all puff links)       |
-| Access `~/scripts`                                   | ro mount, on PATH                                                     |
-| Sessions shared both ways                            | Path identity + shared `~/.claude`                                    |
-| Notification hook → host                             | filtered dbus proxy socket mount (§9) + `notify-send` in image        |
-| Paste images (Ctrl+V)                                | host image-only clipboard broker + `wl-paste` shim in image (§9)      |
-| Formatting hook (nvim)                               | Fedora base + ro mounts of nvim config/data + formatters on PATH      |
-| `CLAUDE_NO_FORMAT` etc.                              | Wrapper forwards `--env`                                              |
-| Bidirectional port-forward                           | `--network host`                                                      |
-| Auth: docker/npm/nuget/.NET user secrets/gh/MCP      | ro config mounts + shared `~/.claude.json` (MCP) + sidecar for docker |
-| Auth: acli                                           | host acli broker (bwrap, keyring-only bus) + `acli` shim in image (§9) |
+| Original requirement                             | Mechanism                                                              |
+| ------------------------------------------------ | ---------------------------------------------------------------------- |
+| Host `~/.claude` settings apply                  | `~/.claude` rw bind mount                                              |
+| Install tools in cage, persist                   | Baked image + shared volumes (fnm versions, global prefix, caches)     |
+| Still use host claude normally                   | Separate `claude-cage` command; host untouched                         |
+| Access all of `~/code`                           | `~/code` rw mount                                                      |
+| Copy/paste host absolute paths (within `~/code`) | Identical `/home/mnj/code` path via `--userns=keep-id`                 |
+| Start from cwd                                   | `podman run -w "$PWD"`                                                 |
+| Works like normal, different command             | `claude-cage` wrapper                                                  |
+| Symlinks outside `~/code`                        | `~/.local/share/puff/projects` ro mount (covers all puff links)        |
+| Access `~/scripts`                               | ro mount, on PATH                                                      |
+| Sessions shared both ways                        | Path identity + shared `~/.claude`                                     |
+| Notification hook → host                         | filtered dbus proxy socket mount (§9) + `notify-send` in image         |
+| Paste images (Ctrl+V)                            | host image-only clipboard broker + `wl-paste` shim in image (§9)       |
+| Formatting hook (nvim)                           | Fedora base + ro mounts of nvim config/data + formatters on PATH       |
+| `CLAUDE_NO_FORMAT` etc.                          | Wrapper forwards `--env`                                               |
+| Bidirectional port-forward                       | `--network host`                                                       |
+| Auth: docker/npm/nuget/.NET user secrets/gh/MCP  | ro config mounts + shared `~/.claude.json` (MCP) + sidecar for docker  |
+| Auth: acli                                       | host acli broker (bwrap, keyring-only bus) + `acli` shim in image (§9) |
 
 ---
 
@@ -844,6 +880,10 @@ Implement, then verify each of these empirically:
       shows only `wayland-0` and its lock; ending the session removes Weston and the dir;
       without `weston` on the host, `cage-display start` explains how to install it. Check
       the flags against `weston --help` on the host Weston version.
+- [ ] **mitmproxy**: with `enable-mitmproxy` running on the host (started before the
+      cage), `mitm-run curl -s https://example.com` in the cage succeeds and shows up in
+      `/flows/dump` read with the token from `~/tmp/mitmweb-token`; `stat -c %g` on a file
+      the command creates prints 65536; plain `curl` isn't captured.
 - [ ] **Sessions** created in the cage are visible/resumable on the host and vice-versa.
 - [ ] **Hook/settings ro overlay** holds: cage cannot write `~/.claude/hooks`,
       `settings.json`, `settings.local.json`, `statusline-command.sh` (verify writes fail).

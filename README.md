@@ -44,6 +44,10 @@ and rationale.
   and a Wayland desktop session, the agent can run `cage-display start` to open a nested
   Weston window on your desktop and show a browser in it (e.g. for an SSO sign-in you
   complete yourself). Without it, `cage-display` says so and everything else works.
+- Optional: **`~/scripts/enable-mitmproxy`** running on the host to let the agent capture
+  traffic with `mitm-run <cmd>`. The script must give the host `mitm` group gid
+  `<your subgid start> + 65535` and write its mitmweb token to `~/tmp/mitmweb-token`
+  (`DESIGN.md` §9). Restart the cage after the first run so it trusts the mitmproxy CA.
 - The base image is pulled from `ghcr.io/marcinjahn/agent-cage:latest`, rebuilt daily by
   GitHub Actions.
 
@@ -105,7 +109,7 @@ lingering: `sudo loginctl enable-linger $USER`.
 - **Image** (`Dockerfile`): Fedora 43 + .NET 10 & 9, node via `fnm`, Python, Ruby, Rust (rustup),
   formatters (csharpier/prettier/stylua/eslint/rustfmt),
   `jj`/`git`/`gh`/`acli`/`just`/`jq`/`yq`/`difft`/`ctx7`/`pnpm`/`bun`/`terraform`/`tofu`, ImageMagick (`magick`), `sqlite3`, docker CLI,
-  `kubectl` (read-only access only — see below), the Playwright CLI (with Google Chrome, Firefox and chromium-headless-shell), Claude Code,
+  `kubectl` (read-only access only — see below), mitmproxy (`mitmdump`), the Playwright CLI (with Google Chrome, Firefox and chromium-headless-shell), Claude Code,
   and the GitHub Copilot CLI. Built daily and pushed to GHCR.
 - **Wrappers** (`bin/`): `claude-cage` and `cage` share `_cage-lib.sh`, which assembles all
   podman mounts/env/flags, does the rate-limited image pull, and manages the sidecar.

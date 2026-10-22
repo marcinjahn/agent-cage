@@ -192,6 +192,15 @@ RUN PC_URL="$(curl -fsSL https://api.github.com/repos/F1bonacc1/process-compose/
     && chmod +x /usr/local/bin/process-compose \
     && rm -f /tmp/process-compose.tgz
 
+# mitmproxy (mitmdump/mitmproxy/mitmweb) — latest release, standalone binaries.
+# Reads flows from the host's mitmweb (`mitm-run`, DESIGN §9).
+RUN MITM_VERSION="$(curl -fsSL https://api.github.com/repos/mitmproxy/mitmproxy/releases/latest \
+        | jq -r '.tag_name' | sed 's/^v//')" \
+    && curl -fsSL "https://downloads.mitmproxy.org/${MITM_VERSION}/mitmproxy-${MITM_VERSION}-linux-x86_64.tar.gz" \
+        -o /tmp/mitmproxy.tgz \
+    && tar -xzf /tmp/mitmproxy.tgz -C /usr/local/bin mitmdump mitmproxy mitmweb \
+    && rm -f /tmp/mitmproxy.tgz
+
 # fnm (node version manager) binary on PATH; node versions live in a volume (§7).
 RUN curl -fsSL https://fnm.vercel.app/install \
         | bash -s -- --install-dir /usr/local/bin --skip-shell
@@ -241,8 +250,14 @@ RUN dotnet tool install --tool-path /opt/dotnet-tools dotnet-counters \
 # ---------------------------------------------------------------------------
 # uid/gid 1000 mirror the host so --userns=keep-id yields correct file ownership
 # in ~/code and identical $PWD resolution (DESIGN §6).
+#
+# `mitm` is the group the host's enable-mitmproxy intercepts. Its gid 65536 is the
+# top of the keep-id window, which maps to the host's last default subgid, where
+# enable-mitmproxy puts the host `mitm` group (DESIGN §9).
 RUN groupadd -g 1000 mnj \
     && useradd -m -u 1000 -g 1000 -s /bin/bash mnj \
+    && groupadd -g 65536 mitm \
+    && usermod -aG mitm mnj \
     # Volume mountpoints owned by mnj so podman's copy-up preserves correct
     # ownership and runtime writes (new node versions, npm -g) succeed.
     && mkdir -p /opt/fnm /opt/cage /opt/copilot /opt/ctx7 /opt/pnpm /opt/playwright \
@@ -285,7 +300,9 @@ COPY --chown=root:root --chmod=755 etc/acli /usr/local/bin/acli
 # (bin/_cage-display-broker) to start a Weston window on the user's desktop.
 COPY --chown=root:root --chmod=755 etc/cage-display /usr/local/bin/cage-display
 
-ENV FNM_DIR=/opt/fnm \
+# USER: podman doesn't set it, and scripts like mitm-run look the user up by it.
+ENV USER=mnj \
+    FNM_DIR=/opt/fnm \
     NPM_CONFIG_PREFIX=/opt/cage \
     TZ=Europe/Warsaw \
     DISABLE_AUTOUPDATER=1 \
