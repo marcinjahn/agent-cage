@@ -297,7 +297,8 @@ COPY --chown=root:root --chmod=755 etc/wl-paste /usr/local/bin/wl-paste
 COPY --chown=root:root --chmod=755 etc/acli /usr/local/bin/acli
 
 # On-demand nested display for headed browsers: asks the host broker
-# (bin/_cage-display-broker) to start a Weston window on the user's desktop.
+# (bin/_cage-display-broker) to start a Weston window on the user's desktop, and
+# reports the security keys attached while it's open.
 COPY --chown=root:root --chmod=755 etc/cage-display /usr/local/bin/cage-display
 
 # USER: podman doesn't set it, and scripts like mitm-run look the user up by it.

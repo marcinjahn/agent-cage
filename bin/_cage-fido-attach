@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+# Host-side: attaches security keys (FIDO HID) into a running cage while its nested
+# display is up (DESIGN §9). Started by bin/_cage-display-broker.
+#
+# Usage: _cage-fido-attach <cage-pidfd> <weston-pid>
+#
+# The pidfd names a process in the cage (the `cage-display start` client). Joining
+# its user namespace gives this process (the namespace's owner) mount rights in
+# the cage's mount namespace, which podman can't add devices to after start. Each /dev/hidrawN
+# whose report descriptor has the FIDO usage page (0xF1D0) is cloned with
+# open_tree() from a private copy of the host's mount table and attached at the
+# same path in the cage. Only FIDO interfaces are attached: a key's OTP
+# interface can reprogram its slots, and other HID devices carry keystrokes.
+#
+# Kernel uevents keep the set current. On removal the node is detached at once:
+# a bind-mounted device node keeps its major:minor and permissions after the
+# device is gone, so it would open whatever device gets that hidraw number next.
+# Everything is detached when Weston exits (STOP, window closed, session end)
+# or this process is terminated.
+#
+# Prints "ready" or "error <msg>" once the initial attach is done.
+
+import ctypes
+import os
+import re
+import select
+import signal
+import socket
+import sys
+
+SYS_OPEN_TREE = 428
+SYS_MOVE_MOUNT = 429
+OPEN_TREE_CLONE = 1
+MOVE_MOUNT_F_EMPTY_PATH = 0x4
+MNT_DETACH = 2
+AT_FDCWD = -100
+NETLINK_KOBJECT_UEVENT = 15
+FIDO_USAGE_PAGE = 0xF1D0
+HIDRAW_NAME = re.compile(r"hidraw[0-9]+")
+
+libc = ctypes.CDLL(None, use_errno=True)
+libc.syscall.restype = ctypes.c_long
+attached = set()
+
+
+def _check(ret, what):
+    if ret < 0:
+        err = ctypes.get_errno()
+        raise OSError(err, f"{what}: {os.strerror(err)}")
+    return ret
+
+
+def is_fido(name):
+    try:
+        with open(f"/sys/class/hidraw/{name}/device/report_descriptor", "rb") as f:
+            desc = f.read()
+    except OSError:
+        return False
+    i = 0
+    while i < len(desc):
+        prefix = desc[i]
+        if prefix == 0xFE:  # long item
+            if i + 1 >= len(desc):
+                break
+            i += 3 + desc[i + 1]
+            continue
+        size = (0, 1, 2, 4)[prefix & 0x3]
+        if prefix & 0xFC == 0x04 and int.from_bytes(desc[i + 1 : i + 1 + size], "little") == FIDO_USAGE_PAGE:
+            return True
+        i += 1 + size
+    return False
+
+
+def attach(name, host_ns, cage_ns):
+    os.setns(host_ns, os.CLONE_NEWNS)
+    tree = _check(
+        libc.syscall(SYS_OPEN_TREE, AT_FDCWD, f"/dev/{name}".encode(), OPEN_TREE_CLONE | os.O_CLOEXEC),
+        f"open_tree /dev/{name}",
+    )
+    try:
+        os.setns(cage_ns, os.CLONE_NEWNS)
+        target = f"/dev/{name}"
+        os.close(os.open(target, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600))
+        try:
+            _check(
+                libc.syscall(SYS_MOVE_MOUNT, tree, b"", AT_FDCWD, target.encode(), MOVE_MOUNT_F_EMPTY_PATH),
+                f"move_mount {target}",
+            )
+        except OSError:
+            os.unlink(target)
+            raise
+        attached.add(name)
+    finally:
+        os.close(tree)
+        os.setns(host_ns, os.CLONE_NEWNS)
+
+
+def detach(name, host_ns, cage_ns):
+    attached.discard(name)
+    os.setns(cage_ns, os.CLONE_NEWNS)
+    try:
+        libc.umount2(f"/dev/{name}".encode(), MNT_DETACH)
+        try:
+            os.unlink(f"/dev/{name}")
+        except OSError:
+            pass
+    finally:
+        os.setns(host_ns, os.CLONE_NEWNS)
+
+
+def handle_uevent(msg, host_ns, cage_ns):
+    fields = msg.split(b"\0")
+    env = dict(f.decode(errors="replace").split("=", 1) for f in fields[1:] if b"=" in f)
+    name = env.get("DEVNAME", "")
+    if env.get("SUBSYSTEM") != "hidraw" or not HIDRAW_NAME.fullmatch(name):
+        return
+    action = env.get("ACTION")
+    if action == "remove" and name in attached:
+        detach(name, host_ns, cage_ns)
+    elif action == "add" and is_fido(name):
+        if name in attached:
+            detach(name, host_ns, cage_ns)
+        try:
+            attach(name, host_ns, cage_ns)
+        except OSError as e:
+            print(f"_cage-fido-attach: {e}", file=sys.stderr, flush=True)
+
+
+def _terminate(*_):
+    raise SystemExit(0)
+
+
+def main():
+    cage, weston_pid = int(sys.argv[1]), int(sys.argv[2])
+    libc.prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+    signal.signal(signal.SIGTERM, _terminate)
+    try:
+        weston = os.pidfd_open(weston_pid)
+        uevents = socket.socket(socket.AF_NETLINK, socket.SOCK_DGRAM | socket.SOCK_CLOEXEC, NETLINK_KOBJECT_UEVENT)
+        uevents.bind((0, 1))
+        # The cage's /proc belongs to its own pid namespace, where this process
+        # doesn't exist, so its /proc/self can't be used once inside.
+        proc_self = os.open("/proc/self", os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC)
+        os.setns(cage, os.CLONE_NEWUSER)
+        os.unshare(os.CLONE_NEWNS)
+        host_ns = os.open("ns/mnt", os.O_RDONLY | os.O_CLOEXEC, dir_fd=proc_self)
+        os.setns(cage, os.CLONE_NEWNS)
+        cage_ns = os.open("ns/mnt", os.O_RDONLY | os.O_CLOEXEC, dir_fd=proc_self)
+        os.setns(host_ns, os.CLONE_NEWNS)
+        os.close(proc_self)
+        os.close(cage)
+    except OSError as e:
+        print(f"_cage-fido-attach: {e}", file=sys.stderr, flush=True)
+        print(f"error {e.strerror or e}", flush=True)
+        return 1
+
+    try:
+        errors = []
+        for name in sorted(os.listdir("/sys/class/hidraw")):
+            if HIDRAW_NAME.fullmatch(name) and is_fido(name):
+                try:
+                    attach(name, host_ns, cage_ns)
+                except OSError as e:
+                    print(f"_cage-fido-attach: {e}", file=sys.stderr, flush=True)
+                    errors.append(str(e))
+        print(f"error {'; '.join(errors)}" if errors and not attached else "ready", flush=True)
+        while True:
+            ready, _, _ = select.select([uevents, weston], [], [])
+            if weston in ready:
+                break
+            msg, (sender, _) = uevents.recvfrom(16384)
+            if sender == 0:
+                handle_uevent(msg, host_ns, cage_ns)
+    finally:
+        for name in list(attached):
+            detach(name, host_ns, cage_ns)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

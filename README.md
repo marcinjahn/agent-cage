@@ -165,6 +165,7 @@ being edited, not what `kubectl` could do against the API. Instead:
 | `CAGE_KUBE_TOKEN_TTL`  | `1h`                                   | validity of the minted read-only kubectl tokens (`--kube`)                             |
 | `CAGE_SIDECAR_STORAGE` | _(unset)_                              | set to `vfs` if fuse-overlayfs is absent                                               |
 | `CAGE_DISPLAY`         | `1`                                    | `0` gives sessions no display broker, so `cage-display` can't open a window            |
+| `CAGE_FIDO`            | `1`                                    | `0` keeps security keys out of the cage while the `cage-display` window is open        |
 
 ## Notes & limitations
 
@@ -186,7 +187,10 @@ being edited, not what `kubectl` could do against the API. Instead:
   so testcontainers bind-mounting an ad-hoc cwd won't reach it. (`DESIGN.md` §6/§8)
 - **Headed browsers:** the nested Weston window shares no clipboard with your desktop, so
   type credentials into it directly. It starts only when the agent asks for it and closes
-  with the session; the browser profile is a fresh, throwaway one each time. (`DESIGN.md` §9)
+  with the session; the browser profile is a fresh, throwaway one each time. While it's open,
+  security keys (their FIDO interface only) are attached into the cage so WebAuthn sign-ins
+  work there; plug the key in before the browser opens. Only touch the key when the window
+  asks you to. (`DESIGN.md` §9)
 - **Adding a language** (Rust/Python/Go/…): add one `RUN` block in the clearly-labelled
   `--- extra toolchains (add here) ---` section of the `Dockerfile`; the daily rebuild
   picks it up.

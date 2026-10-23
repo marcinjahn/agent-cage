@@ -4,6 +4,7 @@
 # nested Weston window on the user's desktop; only that window's Wayland socket
 # is visible in the cage.
 
+import glob
 import os
 import socket
 import sys
@@ -57,6 +58,14 @@ def main(argv):
     print(f"display running at {WAYLAND}; open a headed browser on it with:")
     print(f"  XDG_SESSION_TYPE=wayland WAYLAND_DISPLAY={WAYLAND} playwright-cli open --headed --browser chrome <url>")
     print("(--browser firefox works with the same variables)")
+    if reply != "ok":
+        print(f"cage-display: {reply.removeprefix('ok').strip()}", file=sys.stderr)
+        return 0
+    keys = sorted(glob.glob("/dev/hidraw*"))
+    if keys:
+        print(f"security key attached while the window is open: {', '.join(keys)}")
+    else:
+        print("no security key plugged in; plug it in before opening the browser and it's attached automatically")
     return 0
 
 

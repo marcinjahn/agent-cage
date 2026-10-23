@@ -41,3 +41,8 @@ solve a captcha), open it in a nested display window on their desktop:
 Don't use `--persistent` or `--profile` for these sessions: the default throwaway profile
 keeps the user's login cookies from outliving the session. The window has no clipboard
 link to the desktop, so the user types credentials directly into it.
+
+Security keys (YubiKey, WebAuthn) work in that window: `cage-display start` reports
+whether one is attached. If the sign-in needs one and none is attached, ask the user to
+plug it in, then reopen the browser (a browser started before the key was plugged in may
+not see it). Never trigger WebAuthn requests the user didn't ask for.

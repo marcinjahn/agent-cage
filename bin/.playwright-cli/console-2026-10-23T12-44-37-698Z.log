@@ -1,0 +1,10 @@
+[    2127ms] [LOG] Setting up Conditional UI @ https://webauthn.io/:753
+[    2404ms] [LOG] AUTHENTICATION OPTIONS @ https://webauthn.io/:714
+[    2404ms] [LOG] {
+  "challenge": "Z8D_Fpf5-w2eIPlE2poHn7GnZ5xLJypVYLSxsMlAw581ZUIhm80sfW8CtkvbLo-07MgSgqRgufGH9r_GQP3g_g",
+  "timeout": 60000,
+  "rpId": "webauthn.io",
+  "allowCredentials": [],
+  "userVerification": "preferred",
+  "hints": []
+} @ https://webauthn.io/:715

@@ -1,0 +1,171 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e7]:
+      - heading "WebAuthn.io" [level=2] [ref=e8]
+      - heading "A demo of the WebAuthn specification" [level=5] [ref=e9]
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - textbox "example_username" [active] [ref=e15]
+          - generic [ref=e16]:
+            - button "Register" [ref=e18] [cursor=pointer]
+            - button "Authenticate" [ref=e20] [cursor=pointer]
+        - button "Advanced Settings" [ref=e22] [cursor=pointer]
+  - main [ref=e24]:
+    - generic [ref=e28]:
+      - heading "What is WebAuthn?" [level=3] [ref=e29]
+      - paragraph [ref=e30]:
+        - text: Welcome to webauthn.io! This site is designed by
+        - link "Duo Labs" [ref=e31] [cursor=pointer]:
+          - /url: https://duo.com/labs
+        - text: to test WebAuthn and passkeys. WebAuthn enjoys wide support in all evergreen browsers including Chrome, Safari, and Firefox, and in all modern operating systems including Android, iOS, macOS, and Windows.
+      - paragraph [ref=e32]:
+        - text: For an introduction to WebAuthn and what it can do, check out
+        - link "webauthn.guide" [ref=e33] [cursor=pointer]:
+          - /url: https://webauthn.guide
+        - text: . If you're looking to add WebAuthn support to your site then
+        - link "passkeys.dev" [ref=e34] [cursor=pointer]:
+          - /url: https://passkeys.dev
+        - text: has you covered. The code for this demo can be found on
+        - link "GitHub" [ref=e35] [cursor=pointer]:
+          - /url: https://github.com/duo-labs/webauthn.io
+        - text: .
+    - generic [ref=e36]:
+      - generic [ref=e38]:
+        - heading "Using WebAuthn" [level=3] [ref=e39]
+        - paragraph [ref=e40]: "Add WebAuthn to your site with one of these libraries:"
+      - generic [ref=e41]:
+        - link [ref=e43] [cursor=pointer]:
+          - /url: https://github.com/duo-labs/py_webauthn
+          - heading "Python" [level=5] [ref=e44]
+          - paragraph [ref=e45]: duo-labs/py_webauthn
+          - paragraph [ref=e47]: Duo Labs
+          - paragraph [ref=e49]: Library
+        - link [ref=e52] [cursor=pointer]:
+          - /url: https://github.com/MasterKale/SimpleWebAuthn
+          - heading "TypeScript" [level=5] [ref=e53]
+          - paragraph [ref=e54]: SimpleWebAuthn
+          - paragraph [ref=e56]: Matthew Miller
+          - paragraph [ref=e58]: Library
+        - link [ref=e61] [cursor=pointer]:
+          - /url: https://github.com/passwordless-id/webauthn
+          - heading "TypeScript" [level=5] [ref=e62]
+          - paragraph [ref=e63]: passwordless-id/webauthn
+          - paragraph [ref=e65]: Arnaud Dagnelies
+          - paragraph [ref=e67]: Library
+        - link [ref=e70] [cursor=pointer]:
+          - /url: https://github.com/cedarcode/webauthn-ruby
+          - heading "Ruby" [level=5] [ref=e71]
+          - paragraph [ref=e72]: cedarcode/webauthn-ruby
+          - paragraph [ref=e74]: Cedarcode
+          - paragraph [ref=e76]: Library
+        - link [ref=e79] [cursor=pointer]:
+          - /url: https://github.com/ruby-passkeys/devise-passkeys
+          - heading "Ruby" [level=5] [ref=e80]
+          - paragraph [ref=e81]: ruby-passkeys/devise-passkeys
+          - paragraph [ref=e83]: Ruby passkeys
+          - paragraph [ref=e85]: Library
+        - link [ref=e88] [cursor=pointer]:
+          - /url: https://github.com/ruby-passkeys/warden-webauthn
+          - heading "Ruby" [level=5] [ref=e89]
+          - paragraph [ref=e90]: ruby-passkeys/warden-webauthn
+          - paragraph [ref=e92]: Ruby passkeys
+          - paragraph [ref=e94]: Library
+        - link [ref=e97] [cursor=pointer]:
+          - /url: https://github.com/webauthn4j/webauthn4j
+          - heading "Java" [level=5] [ref=e98]
+          - paragraph [ref=e99]: webauthn4j/webauthn4j
+          - paragraph [ref=e101]: Yoshikazu Nojima
+          - paragraph [ref=e103]: Library
+        - link [ref=e106] [cursor=pointer]:
+          - /url: https://github.com/Yubico/java-webauthn-server
+          - heading "Java" [level=5] [ref=e107]
+          - paragraph [ref=e108]: java-webauthn-server
+          - paragraph [ref=e110]: Yubico
+          - paragraph [ref=e112]: Library
+        - link [ref=e115] [cursor=pointer]:
+          - /url: https://github.com/vert-x3/vertx-auth
+          - heading "Java" [level=5] [ref=e116]
+          - paragraph [ref=e117]: vertx-auth/webauthn
+          - paragraph [ref=e119]: Eclipse Vert.x
+          - paragraph [ref=e121]: Library
+        - link [ref=e124] [cursor=pointer]:
+          - /url: https://github.com/passwordless-lib/fido2-net-lib
+          - heading ".NET" [level=5] [ref=e125]
+          - paragraph [ref=e126]: abergs/fido2-net-lib
+          - paragraph [ref=e128]: Anders Åberg
+          - paragraph [ref=e130]: Library
+        - link [ref=e133] [cursor=pointer]:
+          - /url: https://github.com/go-webauthn/webauthn
+          - heading "Go" [level=5] [ref=e134]
+          - paragraph [ref=e135]: go-webauthn/webauthn
+          - paragraph [ref=e137]: go-webauthn
+          - paragraph [ref=e139]: Library
+        - link [ref=e142] [cursor=pointer]:
+          - /url: https://github.com/swift-server/webauthn-swift
+          - heading "Swift" [level=5] [ref=e143]
+          - paragraph [ref=e144]: swift-server/webauthn-swift
+          - paragraph [ref=e146]: Swift Server Working Group
+          - paragraph [ref=e148]: Library
+    - generic [ref=e150]:
+      - generic [ref=e152]:
+        - heading "Previewing WebAuthn" [level=3] [ref=e153]
+        - paragraph [ref=e154]: "See WebAuthn in action with one of these demos:"
+      - generic [ref=e155]:
+        - link [ref=e157] [cursor=pointer]:
+          - /url: https://github.com/duo-labs/webauthn.io
+          - heading "Python" [level=5] [ref=e158]
+          - paragraph [ref=e159]: duo-labs/webauthn.io
+          - paragraph [ref=e161]: Duo Labs
+          - paragraph [ref=e163]: Demo
+        - link [ref=e166] [cursor=pointer]:
+          - /url: https://github.com/google/webauthndemo
+          - heading "TypeScript" [level=5] [ref=e167]
+          - paragraph [ref=e168]: google/webauthndemo
+          - paragraph [ref=e170]: Google
+          - paragraph [ref=e172]: Demo
+        - link [ref=e175] [cursor=pointer]:
+          - /url: https://github.com/fido-alliance/webauthn-demo
+          - heading "Javascript" [level=5] [ref=e176]
+          - paragraph [ref=e177]: webauthn-demo
+          - paragraph [ref=e179]: FIDO Alliance
+          - paragraph [ref=e181]: Demo
+        - link [ref=e184] [cursor=pointer]:
+          - /url: https://github.com/vertx-howtos/fido2-webauthn-howto
+          - heading "Java" [level=5] [ref=e185]
+          - paragraph [ref=e186]: vertx/webauthn-howto
+          - paragraph [ref=e188]: Eclipse Vert.x
+          - paragraph [ref=e190]: Demo
+        - link [ref=e193] [cursor=pointer]:
+          - /url: https://github.com/passwordless-lib/fido2-net-lib/tree/master/Demo
+          - heading ".NET" [level=5] [ref=e194]
+          - paragraph [ref=e195]: passwordless-lib/fido2-net-lib/Demo
+          - paragraph [ref=e197]: Anders Åberg
+          - paragraph [ref=e199]: Demo
+        - link [ref=e202] [cursor=pointer]:
+          - /url: https://github.com/brokenhandsio/Vapor-PasskeyDemo
+          - heading "Swift" [level=5] [ref=e203]
+          - paragraph [ref=e204]: brokenhandsio/Vapor-PasskeyDemo
+          - paragraph [ref=e206]: Broken Hands
+          - paragraph [ref=e208]: Demo
+    - generic [ref=e213]:
+      - heading "Matthew Miller" [level=4] [ref=e214]
+      - paragraph [ref=e215]:
+        - text: Matthew Miller is a Tech Lead on the Cisco Secure team helping to build a user-centric
+        - link "Duo" [ref=e216] [cursor=pointer]:
+          - /url: https://duo.com/
+        - text: Passwordless experience.
+      - paragraph [ref=e217]: In addition to representing Cisco in two WebAuthn Working Groups, and being a co-chair of the WebAuthn Adoption Community Group, Matthew created and maintains two WebAuthn libraries including py_webauthn and SimpleWebAuthn.
+      - paragraph [ref=e218]:
+        - text: "Got a question about the site? Get in touch over at GitHub:"
+        - link "duo-labs/webauthn.io" [ref=e219] [cursor=pointer]:
+          - /url: https://github.com/duo-labs/webauthn.io
+    - generic [ref=e230]:
+      - heading "Special Thanks to Nick Steele" [level=4] [ref=e231]
+      - paragraph [ref=e232]: Nick Steele is a cybersecurity researcher, and contributor to the WebAuthn specification. While he's no longer at Duo, he thinks about them every time he gets a push notification.
+  - contentinfo [ref=e233]:
+    - generic [ref=e234]:
+      - paragraph [ref=e235]: Sponsored by
+      - link [ref=e236] [cursor=pointer]:
+        - /url: https://duo.com
+      - link [ref=e237] [cursor=pointer]:
+        - /url: https://cisco.com

@@ -90,6 +90,10 @@ CAGE_KUBE_TOKEN_TTL="${CAGE_KUBE_TOKEN_TTL:-1h}"
 # itself starts only when the agent runs `cage-display start`. Set to 0 to give
 # sessions no display broker at all.
 CAGE_DISPLAY="${CAGE_DISPLAY:-1}"
+# While that Weston window is open, security keys (FIDO interfaces only) are
+# attached into the cage so the user can sign in with one there. Set to 0 to
+# keep them out.
+CAGE_FIDO="${CAGE_FIDO:-1}"
 
 # Name the wrapper was invoked as (claude-cage / cage), for use in messages.
 CAGE_INVOKED_AS="${CAGE_INVOKED_AS:-$(basename "$0")}"
@@ -674,7 +678,7 @@ _cage_display_broker_launch() {
   local ddir="$dir/display-$$"
   mkdir -p -m 700 "$dir" && mkdir -p -m 700 "$ddir" || return 1
   setsid -f python3 "$(dirname "${BASH_SOURCE[0]}")/_cage-display-broker" \
-    "$ddir.sock" "$$" "$ddir" "$host_wl" "$dir/display-$$.log" \
+    "$ddir.sock" "$$" "$ddir" "$host_wl" "$dir/display-$$.log" "$CAGE_FIDO" \
     </dev/null >/dev/null 2>&1 || return 1
   printf '%s' "$ddir"
 }

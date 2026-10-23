@@ -60,7 +60,9 @@ notifications, port access, testcontainers).
   network namespace, and with it the host's **abstract** unix sockets (see the open risk
   below).
 - A nested Weston window on the desktop, only once the agent asks for one
-  (`cage-display start`, §9) — what the user types into it is visible to the cage.
+  (`cage-display start`, §9) — what the user types into it is visible to the cage. While
+  that window is up, the FIDO interface of any plugged-in security key is attached into
+  the cage too (raw CTAP access, §9; `CAGE_FIDO=0` keeps it out).
 - Anything reachable through the **docker sidecar**, bounded to `~/code` and `~/tmp`
   (see §8) — both of which the cage can already write.
 
@@ -739,10 +741,36 @@ running as one window on the host desktop.
 - **Profiles:** playwright-cli's default profile is in-memory and dies with the browser;
   `etc/cage-claude.md` tells the agent not to use `--persistent`/`--profile` here, so SSO
   cookies don't outlive the session.
+- **Security keys (WebAuthn):** the cage has no `/dev/hidraw*`, and podman can't add a
+  device to a running container, so while Weston runs the broker keeps
+  `bin/_cage-fido-attach` (python3) running on the host to attach them. The broker takes
+  the `cage-display start` client's pidfd (`SO_PEERPIDFD`, race-free) and passes it on; the
+  helper joins that process's user namespace (the host user owns it, so it gets mount
+  rights there), clones each `/dev/hidrawN` with `open_tree(OPEN_TREE_CLONE)` from a private
+  copy of the host mount table, and `move_mount`s it onto a placeholder at the same path in
+  the cage's mount namespace. Chrome finds it through sysfs (already visible) and opens the
+  node.
+  - **FIDO interfaces only:** a node is attached only if its report descriptor has the FIDO
+    usage page (`0xF1D0`). A YubiKey's OTP interface can reprogram its slots, and other HID
+    devices (keyboards, receivers) carry keystrokes.
+  - **Detach on removal:** a bind-mounted device node keeps its major:minor and permissions
+    after the device is gone, so it would open whatever device gets that hidraw number next
+    (a keyboard receiver, say). The helper listens for kernel uevents (netlink, sender 0 only)
+    and detaches a node as soon as its device is removed; a re-plugged key is attached again.
+  - **Lifetime:** the helper watches Weston through a pidfd and detaches everything when it
+    exits (`STOP`, window closed, session end), on `SIGTERM`, or when the broker dies
+    (`PR_SET_PDEATHSIG`). `START` replies `ok <warning>` if attaching failed (kernel < 6.5
+    without `SO_PEERPIDFD`, python < 3.12), and the window still opens.
+  - **Plug in first:** udev events don't reach the cage, so a browser started before the key
+    was plugged in may not notice it; reopen the browser.
+  - `CAGE_FIDO=0` (passed as the broker's last argument) turns this off.
 
 Residual exposure: whatever the user types or shows in the nested window (credentials
 included) is visible to the cage, which drives the browser anyway. The cage can pop up a
-window whenever it likes during the session, and it can't do more than that.
+window whenever it likes during the session, and it can't do more than that. While the
+window is open the cage has raw CTAP access to the key: anything it asks for still needs a
+touch, but a touch meant for the window's sign-in could approve an assertion the agent
+requested for another site, and it could set a FIDO PIN on a key that has none.
 
 ### mitmproxy (`mitm-run`)
 
@@ -880,6 +908,11 @@ Implement, then verify each of these empirically:
       shows only `wayland-0` and its lock; ending the session removes Weston and the dir;
       without `weston` on the host, `cage-display start` explains how to install it. Check
       the flags against `weston --help` on the host Weston version.
+- [x] **Security key**: with a YubiKey plugged in, `cage-display start` lists its FIDO
+      `/dev/hidrawN` (only that one, not the OTP/keyboard interface), and a WebAuthn sign-in
+      in the window's Chrome works with a touch; unplugging the key removes the node at once,
+      plugging it back re-adds it; `cage-display stop` or closing the window removes it;
+      with `CAGE_FIDO=0` no node appears.
 - [ ] **mitmproxy**: with `enable-mitmproxy` running on the host (started before the
       cage), `mitm-run curl -s https://example.com` in the cage succeeds and shows up in
       `/flows/dump` read with the token from `~/tmp/mitmweb-token`; `stat -c %g` on a file

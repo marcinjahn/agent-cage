@@ -1,0 +1,109 @@
+- generic [ref=e1]:
+  - generic [aria-hidden] [ref=e2]:
+    - navigation [ref=e3]:
+      - link [ref=e4] [cursor=pointer]:
+        - /url: https://about.google/?fg=1&utm_source=google-PL&utm_medium=referral&utm_campaign=hp-header
+        - text: O nas
+      - link [ref=e5] [cursor=pointer]:
+        - /url: https://store.google.com/PL?utm_source=hp_header&utm_medium=google_ooo&utm_campaign=GS100042&hl=pl-PL
+        - text: Google Store
+      - generic [ref=e7]:
+        - generic [ref=e8]:
+          - link [ref=e10] [cursor=pointer]:
+            - /url: https://mail.google.com/mail/&ogbl
+            - text: Gmail
+          - link [ref=e12] [cursor=pointer]:
+            - /url: https://www.google.com/imghp?hl=pl&ogbl
+            - text: Grafika
+        - button [ref=e15] [cursor=pointer]
+        - link [ref=e20] [cursor=pointer]:
+          - /url: https://accounts.google.com/ServiceLogin?hl=pl&passive=true&continue=https://www.google.com/&ec=futura_exp_og_so_72776762_e
+          - generic: Zaloguj się
+    - search [ref=e31]:
+      - generic [ref=e33]:
+        - generic [ref=e35]:
+          - button [ref=e40] [cursor=pointer]
+          - combobox [ref=e45]
+          - generic [ref=e46]:
+            - generic [ref=e47]:
+              - button [ref=e50] [cursor=pointer]
+              - button [ref=e56] [cursor=pointer]
+              - button [ref=e61] [cursor=pointer]
+            - link [ref=e64] [cursor=pointer]:
+              - generic [ref=e66]: Tryb AI
+        - generic [ref=e72]:
+          - button [ref=e73] [cursor=pointer]: Szukaj w Google
+          - button [ref=e74] [cursor=pointer]: Szczęśliwy traf
+    - generic [ref=e77]:
+      - text: "Korzystaj z Google w tych językach:"
+      - link [ref=e78] [cursor=pointer]:
+        - /url: https://www.google.com/setprefs?sig=0_6OJYfYt0vcCGuY_Woev7vrklqOY%3D&hl=en&source=homepage&sa=X&ved=0ahUKEwi2253KldCXAxWTOBAIHU1SJF4Q2ZgBCCs
+        - text: English
+    - contentinfo [ref=e80]:
+      - generic [ref=e81]: Polska
+      - generic [ref=e82]:
+        - generic [ref=e83]:
+          - link [ref=e84] [cursor=pointer]:
+            - /url: https://www.google.com/intl/pl_pl/ads/?subid=ww-ww-et-g-awa-a-g_hpafoot1_1!o2&utm_source=google.com&utm_medium=referral&utm_campaign=google_hpafooter&fg=1
+            - text: Reklamuj się
+          - link [ref=e85] [cursor=pointer]:
+            - /url: https://www.google.com/services/?subid=ww-ww-et-g-awa-a-g_hpbfoot1_1!o2&utm_source=google.com&utm_medium=referral&utm_campaign=google_hpbfooter&fg=1
+            - text: Dla firm
+          - link [ref=e86] [cursor=pointer]:
+            - /url: https://google.com/search/howsearchworks/?fg=1
+            - text: Jak działa wyszukiwarka
+        - link [ref=e88] [cursor=pointer]:
+          - /url: https://sustainability.google/intl/pl/carbon-free/?utm_source=googlehpfooter&utm_medium=housepromos&utm_campaign=bottom-footer&utm_content=
+          - text: "Już 3 dekady działamy na rzecz klimatu: zobacz, co robimy"
+        - generic [ref=e89]:
+          - link [ref=e90] [cursor=pointer]:
+            - /url: https://policies.google.com/privacy?hl=pl&fg=1
+            - text: Prywatność
+          - link [ref=e91] [cursor=pointer]:
+            - /url: https://policies.google.com/terms?hl=pl&fg=1
+            - text: Warunki
+          - button [ref=e95] [cursor=pointer]:
+            - generic [ref=e96]: Ustawienia
+  - generic:
+    - dialog "Zanim przejdziesz do wyszukiwarki Google" [active]:
+      - generic [ref=e103]:
+        - generic [ref=e105]:
+          - img "Google" [ref=e106]
+          - generic [ref=e107]:
+            - 'button "Język: ‪polski‬" [ref=e109] [cursor=pointer]':
+              - generic [ref=e110]: pl
+            - link "Zaloguj się" [ref=e112] [cursor=pointer]
+        - generic [ref=e113]:
+          - heading "Zanim przejdziesz do Google" [level=1] [ref=e114]
+          - generic [ref=e115]:
+            - generic [ref=e116]:
+              - text: Używamy
+              - link "plików cookie" [ref=e117] [cursor=pointer]:
+                - /url: https://policies.google.com/technologies/cookies?utm_source=ucbs&hl=pl
+              - text: "i danych, w tym adresów IP, do:"
+              - list [ref=e118]:
+                - listitem [ref=e119]: Dostarczania i utrzymywania usług Google
+                - listitem [ref=e120]: Śledzenia przerw w działaniu usług i ochrony użytkowników przed spamem, oszustwami i nadużyciami
+                - listitem [ref=e121]: Pomiaru zaangażowania odbiorców oraz generowania statystyk dotyczących stron, aby lepiej zrozumieć, jak nasze usługi są używane, i aby poprawiać jakość tych usług
+            - generic [ref=e122]:
+              - text: "Jeśli wybierzesz „Zaakceptuj wszystko”, będziemy używać plików cookie i danych, w tym adresów IP, także do:"
+              - list [ref=e123]:
+                - listitem [ref=e124]: Opracowywania i udoskonalania nowych usług
+                - listitem [ref=e125]: Wyświetlania reklam i mierzenia ich skuteczności
+                - listitem [ref=e126]: Wyświetlania spersonalizowanych treści (w zależności od Twoich ustawień)
+                - listitem [ref=e127]: Wyświetlania spersonalizowanych reklam (w zależności od Twoich ustawień)
+              - generic [ref=e128]: Jeśli wybierzesz „Odrzuć wszystko”, nie będziemy używać plików cookie ani adresów IP w tych dodatkowych celach.
+            - generic [ref=e129]: Treści niespersonalizowane są dobierane na podstawie takich czynników jak aktualnie przeglądana treść, aktywność podczas bieżącej sesji w wyszukiwarce czy Twoja lokalizacja. Reklamy niespersonalizowane są wyświetlane na podstawie aktualnie przeglądanej treści oraz Twojej przybliżonej lokalizacji. Reklamy i treści spersonalizowane mogą dodatkowo zawierać trafniejsze wyniki, rekomendacje oraz lepiej dopasowane reklamy oparte na wcześniejszej aktywności w przeglądarce, np. wcześniejszych wyszukiwaniach w Google. W odpowiednich przypadkach używamy plików cookie i danych także do dostosowywania usług do wieku odbiorcy.
+            - generic [ref=e130]: Aby zobaczyć dodatkowe informacje, w tym szczegóły na temat zarządzania ustawieniami prywatności, wybierz „Więcej opcji”. W każdej chwili możesz też wejść na g.co/privacytools.
+        - generic [ref=e131]:
+          - generic [ref=e132]:
+            - button "Odrzuć wszystko" [ref=e133] [cursor=pointer]
+            - button "Zaakceptuj wszystko" [ref=e134] [cursor=pointer]
+          - link "Więcej opcji dotyczących ustawień personalizacji i plików cookie" [ref=e136] [cursor=pointer]:
+            - generic "Więcej opcji dotyczących ustawień personalizacji i plików cookie" [ref=e137]: Więcej opcji
+        - generic [ref=e138]:
+          - link "Prywatność" [ref=e139] [cursor=pointer]:
+            - /url: https://policies.google.com/privacy?hl=pl&fg=1&utm_source=ucbs
+          - generic [aria-hidden] [ref=e140]: ·
+          - link "Warunki" [ref=e141] [cursor=pointer]:
+            - /url: https://policies.google.com/terms?hl=pl&fg=1&utm_source=ucbs

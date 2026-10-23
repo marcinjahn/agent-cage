@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Host-side, on-demand nested display for a cage session (DESIGN §9).
 #
-# Usage: _cage-display-broker <socket-path> <pid-to-watch> <display-dir> <host-wayland-socket> [logfile]
+# Usage: _cage-display-broker <socket-path> <pid-to-watch> <display-dir> <host-wayland-socket> [logfile] [fido]
 #
 # Idles until the cage's `cage-display start` asks for a display, then runs a
 # nested Weston (kiosk shell, no Xwayland) as a window on the host desktop, with
@@ -12,13 +12,18 @@
 # the socket, <display-dir> and the log) once the watched pid — the wrapper, which execs
 # into podman — is gone.
 #
+# Unless [fido] is 0, security keys are attached into the cage while Weston runs
+# (bin/_cage-fido-attach), so the user can sign in with one in the window.
+#
 # Protocol: one request line per connection, one reply line, then close.
-#   START   -> "ok" once the nested socket exists, or "error <msg>"
+#   START   -> "ok" once the nested socket exists (or "ok <warning>" when security
+#              keys can't be attached), or "error <msg>"
 #   STOP    -> "ok"
 #   STATUS  -> "running" or "stopped"
 
 import ctypes
 import os
+import select
 import signal
 import socket
 import subprocess
@@ -30,9 +35,13 @@ SOCKET_NAME = "wayland-0"
 WIDTH, HEIGHT = 1280, 900
 START_TIMEOUT_S = 5
 STOP_TIMEOUT_S = 3
+FIDO_READY_TIMEOUT_S = 3
+FIDO_HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_cage-fido-attach")
+SO_PEERPIDFD = getattr(socket, "SO_PEERPIDFD", 77)
 
 lock = threading.Lock()
 weston = None
+fido_helper = None
 
 
 def _die_with_parent():
@@ -69,7 +78,17 @@ def _log_tail(log):
         return "weston exited"
 
 
-def start(display_dir, host_wayland, log):
+def start(display_dir, host_wayland, log, cage):
+    reply = _start_weston(display_dir, host_wayland, log)
+    if reply != "ok":
+        return reply
+    if cage is False:
+        return "ok security keys are off (CAGE_FIDO=0)"
+    warning = _start_fido(cage, log)
+    return f"ok {warning}" if warning else "ok"
+
+
+def _start_weston(display_dir, host_wayland, log):
     global weston
     if _running():
         return "ok"
@@ -117,8 +136,59 @@ def start(display_dir, host_wayland, log):
     return f"error weston didn't create its socket within {START_TIMEOUT_S}s"
 
 
+def _start_fido(cage, log):
+    global fido_helper
+    if fido_helper is not None and fido_helper.poll() is None:
+        return None
+    if cage is None:
+        return "security keys unavailable: can't identify the cage's process"
+    out = open(log, "ab") if log else subprocess.DEVNULL
+    try:
+        fido_helper = subprocess.Popen(
+            [sys.executable, FIDO_HELPER, str(cage), str(weston.pid)],
+            pass_fds=(cage,),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=out,
+        )
+    except OSError as e:
+        fido_helper = None
+        return f"security keys unavailable: {e.strerror}"
+    finally:
+        if log:
+            out.close()
+    ready, _, _ = select.select([fido_helper.stdout], [], [], FIDO_READY_TIMEOUT_S)
+    line = fido_helper.stdout.readline().decode(errors="replace").strip() if ready else ""
+    if line == "ready":
+        return None
+    _stop_fido()
+    return f"security keys unavailable: {line.removeprefix('error').strip() or 'attach helper did not start'}"
+
+
+def _stop_fido():
+    global fido_helper
+    if fido_helper is None:
+        return
+    if fido_helper.poll() is None:
+        fido_helper.terminate()
+        try:
+            fido_helper.wait(STOP_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            fido_helper.kill()
+            fido_helper.wait()
+    fido_helper = None
+
+
+def _peer_pidfd(conn):
+    try:
+        return conn.getsockopt(socket.SOL_SOCKET, SO_PEERPIDFD)
+    except OSError:
+        return None
+
+
 def stop():
     global weston
+    _stop_fido()
     if weston is None:
         return "ok"
     if weston.poll() is None:
@@ -132,7 +202,7 @@ def stop():
     return "ok"
 
 
-def handle(conn, display_dir, host_wayland, log):
+def handle(conn, display_dir, host_wayland, log, fido):
     with conn:
         conn.settimeout(START_TIMEOUT_S + STOP_TIMEOUT_S + 2)
         try:
@@ -141,7 +211,12 @@ def handle(conn, display_dir, host_wayland, log):
             return
         with lock:
             if request == ["START"]:
-                reply = start(display_dir, host_wayland, log)
+                cage = _peer_pidfd(conn) if fido else False
+                try:
+                    reply = start(display_dir, host_wayland, log, cage)
+                finally:
+                    if cage:
+                        os.close(cage)
             elif request == ["STOP"]:
                 reply = stop()
             elif request == ["STATUS"]:
@@ -180,6 +255,7 @@ def watch(pid, path, display_dir, log):
 def main():
     path, pid, display_dir, host_wayland = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
     log = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else None
+    fido = len(sys.argv) <= 6 or sys.argv[6] != "0"
     try:
         os.unlink(path)
     except FileNotFoundError:
@@ -192,7 +268,7 @@ def main():
     threading.Thread(target=watch, args=(pid, path, display_dir, log), daemon=True).start()
     while True:
         conn, _ = server.accept()
-        handle(conn, display_dir, host_wayland, log)
+        handle(conn, display_dir, host_wayland, log, fido)
 
 
 if __name__ == "__main__":
