@@ -40,7 +40,8 @@ RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
 # standalone /usr/bin/time (GNU time, with -v for peak RSS etc.) — bash's
 # built-in `time` keyword doesn't support that. systemd provides coredumpctl
 # for inspecting crash dumps. ImageMagick provides magick for image
-# conversion/inspection. sqlite provides the sqlite3 CLI.
+# conversion/inspection. sqlite provides the sqlite3 CLI. Fedora ships Valkey
+# instead of Redis; valkey-compat-redis provides redis-cli (-> valkey-cli).
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng tree \
         fd-find ripgrep \
@@ -60,6 +61,7 @@ RUN dnf -y install \
         vim-common \
         ImageMagick \
         sqlite \
+        valkey-compat-redis \
         iputils iproute traceroute mtr bind-utils \
         nmap nmap-ncat tcpdump socat whois net-tools wget telnet lsof \
     && dnf clean all
