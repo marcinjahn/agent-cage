@@ -303,6 +303,12 @@ COPY --chown=root:root --chmod=755 etc/acli /usr/local/bin/acli
 # reports the security keys attached while it's open.
 COPY --chown=root:root --chmod=755 etc/cage-display /usr/local/bin/cage-display
 
+# Entrypoint that Landlock-scopes the cage away from the host's abstract unix
+# sockets (host Xwayland etc., shared through --network host) — DESIGN §2.
+COPY etc/cage-scope.c /tmp/cage-scope.c
+RUN gcc -O2 -Wall -Werror -o /usr/local/bin/cage-scope /tmp/cage-scope.c \
+    && rm /tmp/cage-scope.c
+
 # USER: podman doesn't set it, and scripts like mitm-run look the user up by it.
 ENV USER=mnj \
     FNM_DIR=/opt/fnm \
@@ -464,4 +470,5 @@ LABEL org.opencontainers.image.title="agent-cage" \
       org.opencontainers.image.description="Claude Code in a cage, sandboxed and packed with various dev tools" \
       org.opencontainers.image.source="https://github.com/marcinjahn/agent-cage"
 
+ENTRYPOINT ["/usr/local/bin/cage-scope"]
 CMD ["claude", "--dangerously-skip-permissions"]

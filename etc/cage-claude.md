@@ -16,7 +16,9 @@ from Claude Code's sandbox; disabling the sandbox won't help.
   that's missing, tell the user instead of working around it.
 - Networking is the host's: ports you bind are host ports, shared with other sessions.
   Ports below 1024 can't be bound. Host and other sessions' processes are invisible, so
-  if a port is busy, pick another one instead of looking for its owner.
+  if a port is busy, pick another one instead of looking for its owner. Host abstract
+  unix sockets (e.g. the host X server, `@/tmp/.X11-unix/X0`) are blocked on purpose
+  (`EPERM`); ones created inside the cage work.
 - `acli` runs on the host with the user's login. Files you pass it (`--body-file`, …)
   must be under `~/code` or `~/tmp` (e.g. your scratchpad), not `/tmp`. `acli auth`
   (other than `status`) and `acli rovodev` are refused; if acli says it's logged out,

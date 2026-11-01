@@ -57,8 +57,8 @@ notifications, port access, testcontainers).
   sockets, other programs' scratch files) is **not** visible: the cage's `/tmp` is its own
   (§7).
 - Host network services — `--network host` is used (see §10). The cage shares the host
-  network namespace, and with it the host's **abstract** unix sockets (see the open risk
-  below).
+  network namespace, but not the host's **abstract** unix sockets: Landlock keeps it from
+  connecting to them (see the closed escape path below).
 - A nested Weston window on the desktop, only once the agent asks for one
   (`cage-display start`, §9) — what the user types into it is visible to the cage. While
   that window is up, the FIDO interface of any plugged-in security key is attached into
@@ -73,17 +73,32 @@ notifications, port access, testcontainers).
 rewrite them, an injected prompt could plant code that later executes _outside_ the cage
 as you. Read-only overlays close that door. (See §7.)
 
-**Open risk — host X server via its abstract socket (not mitigated yet):** the host's
-Xwayland (started by niri through `xwayland-satellite`) listens on the abstract socket
-`@/tmp/.X11-unix/X0` as well as the filesystem one. Abstract sockets belong to the network
-namespace, so `--network host` makes it reachable from the cage even though the host's
-`/tmp/.X11-unix` is no longer mounted (§7), and the X server admits same-uid clients
-(`SI:localuser`). Through it the cage could read the X clipboard/selections, inject
-keystrokes into and capture any Xwayland app (Steam, Electron apps running under X, …);
-native Wayland apps are not affected. Fix options: let a systemd user socket own a
-filesystem-only X socket (`xwayland-satellite :0 -listenfd`, niri's integration off), or
-give the cage its own network namespace (pasta), which also prepares the egress allowlist
-(§10).
+**Closed escape path — host abstract unix sockets (Landlock-scoped):** abstract sockets
+belong to the network namespace, so `--network host` alone would let the cage connect to
+every one the host listens on. The prime example is the host's Xwayland: wlroots
+compositors (umbriel, sway, …) and niri's `xwayland-satellite` integration all listen
+on `@/tmp/.X11-unix/X0` besides the filesystem socket, and the X server admits same-uid
+clients (`SI:localuser`). The cage could then read the X clipboard/selections, inject
+keystrokes into and capture any Xwayland app (Steam, Electron apps running under X, …).
+Hiding the host's `/tmp/.X11-unix` (§7) doesn't help, and SELinux, which would deny it,
+is off for the cage (`label=disable`, §7). The image's entrypoint `cage-scope`
+(`etc/cage-scope.c`) therefore calls `landlock_restrict_self()` with
+`LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET` before exec-ing the command: the whole cage process
+tree gets `EPERM` connecting to an abstract socket created outside it, while abstract
+sockets created inside the cage keep working. It's compositor-independent and covers any
+other host abstract socket too. Details:
+
+- Needs Landlock ABI ≥ 6 (Linux 6.12+, `landlock` in `/sys/kernel/security/lsm`).
+  Without it `cage-scope` refuses to start rather than run unprotected.
+- Landlock requires `no_new_privs` for an unprivileged caller, so setuid/file-capability
+  binaries in the cage can't elevate. The image has no `sudo`, and Fedora's `ping` uses
+  unprivileged ICMP sockets, so nothing depends on that.
+- It only covers processes started through the entrypoint. Both wrappers start the cage
+  with `podman run IMAGE <cmd>`; nothing `podman exec`s into a cage. A future exec path
+  must go through `cage-scope` too, and `--entrypoint` overrides bypass it.
+- The docker sidecar needs no scoping: its rootlesskit runs `--net=slirp4netns`, so
+  containers started through it (even `--network host`) live in a separate network
+  namespace and see none of the host's abstract sockets.
 
 **Accepted risk — secret exfiltration (not mitigated for now):** the cage mounts
 credentials (docker/npm/nuget/.NET user secrets/gh, and the Claude token in
@@ -236,6 +251,9 @@ mason-compiled nvim formatters — run correctly).
 11. Configure PATH and shell init (`/etc/profile.d` + `BASH_ENV`, see §6/§9) for: fnm,
     dotnet tools, the cage-owned global install prefix (volume), and `~/scripts`.
 12. Default working assumptions: non-root, `WORKDIR /home/mnj`.
+13. `ENTRYPOINT ["/usr/local/bin/cage-scope"]` (compiled from `etc/cage-scope.c` during
+    the build): Landlock-scopes every cage process away from the host's abstract unix
+    sockets (§2).
 
 **Toolchain extensibility (explicit requirement):** the image ships **dotnet + node
 only**, but adding a language later (Rust, Python, Go, …) must be a **single, clearly
@@ -917,6 +935,10 @@ Implement, then verify each of these empirically:
       cage), `mitm-run curl -s https://example.com` in the cage succeeds and shows up in
       `/flows/dump` read with the token from `~/tmp/mitmweb-token`; `stat -c %g` on a file
       the command creates prints 65536; plain `curl` isn't captured.
+- [x] **Abstract sockets**: in the cage, connecting to the host's `@/tmp/.X11-unix/X0`
+      fails with `EPERM` (without `cage-scope` the X server accepts it), an abstract
+      socket served and connected to inside the cage works, and
+      `docker run --network host … grep -c X11-unix /proc/net/unix` prints 0.
 - [ ] **Sessions** created in the cage are visible/resumable on the host and vice-versa.
 - [ ] **Hook/settings ro overlay** holds: cage cannot write `~/.claude/hooks`,
       `settings.json`, `settings.local.json`, `statusline-command.sh` (verify writes fail).
