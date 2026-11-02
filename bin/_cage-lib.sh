@@ -187,16 +187,25 @@ cage_image_outdated() {
   esac
 }
 
+# Sets CAGE_SCOPE_CAPS=1 when the local image's cage-scope drops the caps that
+# cage_build_run_args would add. An older image would hand them to the agent (DESIGN §2).
+# Doubles as the image-exists check, so it costs no extra podman call.
+_cage_inspect_image() {
+  CAGE_SCOPE_CAPS="$(podman image inspect \
+    --format '{{ index .Labels "agent-cage.scope-drops-caps" }}' "$CAGE_IMAGE" 2>/dev/null)"
+}
+
 cage_lazy_pull() {
   local stamp="$CAGE_STATE_DIR/last-pull" now last=0
   mkdir -p "$CAGE_STATE_DIR"
   now="$(date +%s)"
 
-  if ! podman image exists "$CAGE_IMAGE"; then
+  if ! _cage_inspect_image; then
     cage_err "pulling $CAGE_IMAGE (first run)…"
     podman pull "$CAGE_IMAGE" ||
       cage_die "failed to pull $CAGE_IMAGE — if the package is private, run: podman login ghcr.io"
     echo "$now" >"$stamp"
+    _cage_inspect_image || true
     return 0
   fi
 
@@ -212,6 +221,7 @@ cage_lazy_pull() {
       # our stdout clean) so a download isn't a silent stall. Unchanged images
       # stay quiet because the digest check above skips the pull entirely.
       podman pull "$CAGE_IMAGE" >&2 || cage_err "pull failed; using cached image"
+      _cage_inspect_image || true
     fi
     echo "$now" >"$stamp"
   fi
@@ -258,6 +268,13 @@ cage_build_run_args() {
     --pids-limit="$CAGE_PIDS"
     -w "$PWD" # start in the same dir -> shared session encoding
   )
+  # Lets cage-scope apply Landlock without no_new_privs, so setuid `sg mitm` works;
+  # it drops both caps before exec (DESIGN §2).
+  if [ "${CAGE_SCOPE_CAPS:-}" = "1" ]; then
+    RUN_ARGS+=(--cap-add=SYS_ADMIN --cap-add=SETPCAP)
+  else
+    cage_err "image predates the mitm-run fix; mitm-run won't work until it's updated (CAGE_FORCE_PULL=1)"
+  fi
   _cage_add_mounts
   _cage_add_envs
 }

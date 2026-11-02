@@ -470,5 +470,7 @@ LABEL org.opencontainers.image.title="agent-cage" \
       org.opencontainers.image.description="Claude Code in a cage, sandboxed and packed with various dev tools" \
       org.opencontainers.image.source="https://github.com/marcinjahn/agent-cage"
 
+# Tells the wrappers this cage-scope drops the caps they add (DESIGN §2).
+LABEL agent-cage.scope-drops-caps="1"
 ENTRYPOINT ["/usr/local/bin/cage-scope"]
 CMD ["claude", "--dangerously-skip-permissions"]

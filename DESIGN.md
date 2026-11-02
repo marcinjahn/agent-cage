@@ -90,9 +90,20 @@ other host abstract socket too. Details:
 
 - Needs Landlock ABI ≥ 6 (Linux 6.12+, `landlock` in `/sys/kernel/security/lsm`).
   Without it `cage-scope` refuses to start rather than run unprotected.
-- Landlock requires `no_new_privs` for an unprivileged caller, so setuid/file-capability
-  binaries in the cage can't elevate. The image has no `sudo`, and Fedora's `ping` uses
-  unprivileged ICMP sockets, so nothing depends on that.
+- Landlock requires `no_new_privs` unless the caller has `CAP_SYS_ADMIN`, and
+  `no_new_privs` would break the setuid `sg mitm` behind `mitm-run` (§9). So the wrappers
+  pass `--cap-add=SYS_ADMIN --cap-add=SETPCAP`; for the non-root keep-id user podman puts
+  them in the ambient set. They add them only when the image has the
+  `agent-cage.scope-drops-caps=1` label: an older `cage-scope` would pass them on to the
+  agent, and `CAP_SYS_ADMIN` in the container's userns could unmount the read-only
+  overlays (§7). The label is read by the same `podman image inspect` that checks the
+  image exists, so it adds no launch cost. `cage-scope` restricts itself without `no_new_privs`, drops
+  `CAP_SYS_ADMIN` from the bounding set and clears all its capabilities before exec. The
+  cage tree is then as before the Landlock change (default bounding set, no caps, setuid
+  works), plus the scope. Only PID 1 (`catatonit`, `--init`) keeps the two caps; Landlock
+  and the ptrace capability check keep cage processes from touching it. Without the caps
+  (an image run by hand) `cage-scope` falls back to `no_new_privs`: still scoped, but
+  `sg` fails with `setgid: Operation not permitted`.
 - It only covers processes started through the entrypoint. Both wrappers start the cage
   with `podman run IMAGE <cmd>`; nothing `podman exec`s into a cage. A future exec path
   must go through `cage-scope` too, and `--entrypoint` overrides bypass it.
@@ -291,6 +302,7 @@ Pseudocode:
      --userns=keep-id \
      --network host \
      --security-opt label=disable \   # do NOT relabel ~/code (~75 GB); see §7
+     --cap-add=SYS_ADMIN --cap-add=SETPCAP \  # if the image is labelled for it; cage-scope drops them, §2
      --cgroup-parent=agentcage.slice \  # combined cap for all sessions + sidecar; see §3
      --memory=8g --cpus=6 --pids-limit=16384 \  # default per-session caps; see §3 / overridable
      -w "$PWD" \
@@ -804,7 +816,7 @@ also sees the cage's sockets, so `mitm-run <cmd>` works in the cage once the cag
   `podman system migrate`). Instead, `enable-mitmproxy` gives the host group the user's
   **last default subgid** (`<subgid start> + 65535`), which keep-id always maps to
   container gid **65536**, the top of its window. The image has `mitm:x:65536:mnj`, so
-  `sg mitm` (setuid `newgrp`) works. Podman also adds 65536 as a supplementary group of
+  `sg mitm` (setuid `newgrp`) works, because `cage-scope` doesn't set `no_new_privs` (§2). Podman also adds 65536 as a supplementary group of
   every cage process, which is harmless because the rule matches only the fsgid. Nothing
   else uses 65536: the sidecar's subids end at 65535 (§8).
 - **`USER=mnj`** is set in the image, because podman leaves it unset and `mitm-run`
@@ -934,7 +946,9 @@ Implement, then verify each of these empirically:
 - [ ] **mitmproxy**: with `enable-mitmproxy` running on the host (started before the
       cage), `mitm-run curl -s https://example.com` in the cage succeeds and shows up in
       `/flows/dump` read with the token from `~/tmp/mitmweb-token`; `stat -c %g` on a file
-      the command creates prints 65536; plain `curl` isn't captured.
+      the command creates prints 65536; plain `curl` isn't captured. In the cage
+      `/proc/self/status` shows `NoNewPrivs: 0`, `CapEff: 0…0` and `CapBnd: 00000000800405fb`
+      (no `CAP_SYS_ADMIN`).
 - [x] **Abstract sockets**: in the cage, connecting to the host's `@/tmp/.X11-unix/X0`
       fails with `EPERM` (without `cage-scope` the X server accepts it), an abstract
       socket served and connected to inside the cage works, and
