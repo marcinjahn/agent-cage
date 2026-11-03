@@ -89,7 +89,10 @@ and rationale.
 ## Background image refresh (optional)
 
 The wrappers already refresh `:latest` lazily on launch (rate-limited by
-`CAGE_PULL_INTERVAL`). If you'd rather keep both images warm in the background even
+`CAGE_PULL_INTERVAL`). A newer image downloads in the background: the launch that finds it
+says so and starts on the cached image, and the next launch uses the new one (log:
+`~/.local/state/agent-cage/pull.log`). `--update` instead waits for the download, so that
+session already runs it. If you'd rather keep both images warm in the background even
 between sessions, install the systemd `--user` timer:
 
 ```sh

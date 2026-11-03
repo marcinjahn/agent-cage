@@ -28,9 +28,10 @@ CAGE_TOTAL_CPUS="${CAGE_TOTAL_CPUS:-12}"
 # Lazy pull: refresh :latest at most once per this many seconds. Default is once
 # a day so day-to-day launches are fast and don't hit the registry; the image is
 # rebuilt daily, so a daily check keeps :latest current without per-launch cost.
-# An unchanged :latest only costs a cheap digest check, and an unreachable
-# registry falls back to the cached image (DESIGN §5/§13). Set to 0 to check on
-# every launch, or pass --update / set CAGE_FORCE_PULL=1 to force a check now.
+# An unchanged :latest only costs a cheap digest check; a newer one downloads in
+# the background while the session runs the cached image (DESIGN §5). Set to 0 to
+# check on every launch, or pass --update / set CAGE_FORCE_PULL=1 to check now and
+# wait for the download.
 CAGE_PULL_INTERVAL="${CAGE_PULL_INTERVAL:-86400}"
 
 # When 1, cage_lazy_pull checks the registry regardless of CAGE_PULL_INTERVAL.
@@ -161,25 +162,26 @@ cage_require_workdir() {
 }
 
 # --- image pull (rate-limited) ------------------------------------------------
-# True (0) when the registry holds a digest that differs from the local image —
-# i.e. a pull would actually download a new image. Uses skopeo for a cheap,
-# download-free comparison; if skopeo is missing or the check is inconclusive we
-# return 0 so the caller still pulls (never silently run a stale image).
+# 0 when the registry holds a digest that differs from the local image — i.e. a
+# pull would actually download a new image — and 1 when it's up to date. Uses
+# skopeo for a cheap, download-free comparison; if skopeo is missing or the check
+# is inconclusive it returns 2, and the caller still pulls (never silently keep a
+# stale image).
 cage_image_outdated() {
   if ! command -v skopeo >/dev/null 2>&1; then
     cage_err "skopeo not installed — can't check the registry cheaply; pulling unconditionally (install skopeo to skip unchanged images)"
-    return 0
+    return 2
   fi
 
   local remote local_digests
-  remote="$(skopeo inspect --format '{{ .Digest }}' "docker://$CAGE_IMAGE" 2>/dev/null)" || return 0
-  [ -n "$remote" ] || return 0
+  remote="$(skopeo inspect --format '{{ .Digest }}' "docker://$CAGE_IMAGE" 2>/dev/null)" || return 2
+  [ -n "$remote" ] || return 2
 
   # The local image may be known by its manifest digest and/or one or more repo
   # digests; a match against any of them means we already have what's served.
   local_digests="$(podman image inspect \
     --format '{{ .Digest }} {{ range .RepoDigests }}{{ . }} {{ end }}' \
-    "$CAGE_IMAGE" 2>/dev/null)" || return 0
+    "$CAGE_IMAGE" 2>/dev/null)" || return 2
 
   case "$local_digests" in
   *"$remote"*) return 1 ;; # up to date
@@ -209,22 +211,83 @@ cage_lazy_pull() {
     return 0
   fi
 
+  local downloading=0 rc=0
+  _cage_bg_pull_report || downloading=1
+
   # Stay offline: run whatever image we already have, skipping the registry check.
   [ "$CAGE_NO_PULL" = "1" ] && return 0
 
-  [ -f "$stamp" ] && last="$(cat "$stamp" 2>/dev/null || echo 0)"
-  if [ "$CAGE_FORCE_PULL" = "1" ] || [ $((now - last)) -ge "$CAGE_PULL_INTERVAL" ]; then
+  # --update: the user asked for the newest image in this very session, so wait.
+  if [ "$CAGE_FORCE_PULL" = "1" ]; then
     cage_err "checking for a newer $CAGE_IMAGE…"
-    if cage_image_outdated; then
-      cage_err "newer image available — downloading…"
+    cage_image_outdated || rc=$?
+    if [ "$rc" != 1 ]; then
+      [ "$rc" = 0 ] && cage_err "newer image available — downloading…"
       # Let podman's pull progress reach the terminal (stdout -> stderr, keeping
-      # our stdout clean) so a download isn't a silent stall. Unchanged images
-      # stay quiet because the digest check above skips the pull entirely.
+      # our stdout clean) so a download isn't a silent stall.
       podman pull "$CAGE_IMAGE" >&2 || cage_err "pull failed; using cached image"
       _cage_inspect_image || true
     fi
     echo "$now" >"$stamp"
+    return 0
   fi
+
+  if [ "$downloading" = 1 ]; then
+    cage_err "a newer image is still downloading in the background; this session uses the cached one (log: $CAGE_STATE_DIR/pull.log)"
+    return 0
+  fi
+
+  [ -f "$stamp" ] && last="$(cat "$stamp" 2>/dev/null || echo 0)"
+  [ $((now - last)) -ge "$CAGE_PULL_INTERVAL" ] || return 0
+  echo "$now" >"$stamp"
+  cage_err "checking for a newer $CAGE_IMAGE…"
+  cage_image_outdated || rc=$?
+  case "$rc" in
+  0) cage_err "newer image available — downloading it in the background; this session uses the cached one, the next launch picks up the new one" ;;
+  1) return 0 ;;
+  *) cage_err "couldn't compare with the registry — refreshing the image in the background; this session uses the cached one" ;;
+  esac
+  _cage_bg_pull_start
+}
+
+# Refresh :latest in a detached job, so a launch never waits for a multi-GB
+# download (DESIGN §5). The lock keeps concurrent launches from starting a second
+# pull; pull.running tells later launches one is in progress, and pull.status
+# hands the outcome to the next launch ("updated" only if the image ID changed).
+_cage_bg_pull_start() {
+  # shellcheck disable=SC2016 # expanded by the inner bash
+  setsid -f bash -c '
+    exec 9>"$1/pull.lock"
+    flock -n 9 || exit 0
+    : >"$1/pull.running"
+    before="$(podman image inspect --format "{{.Id}}" "$2" 2>/dev/null)"
+    if podman pull "$2" >"$1/pull.log" 2>&1; then
+      after="$(podman image inspect --format "{{.Id}}" "$2" 2>/dev/null)"
+      if [ "$before" != "$after" ]; then echo updated; else echo unchanged; fi >"$1/pull.status"
+    else
+      echo failed >"$1/pull.status"
+    fi
+    rm -f "$1/pull.running"
+  ' agent-cage-pull "$CAGE_STATE_DIR" "$CAGE_IMAGE" </dev/null >/dev/null 2>&1 ||
+    cage_err "couldn't start the background image download"
+}
+
+# Report what a background pull did since the last launch. Returns 1 while one is
+# still running. Costs only file tests unless a pull was started.
+_cage_bg_pull_report() {
+  local dir="$CAGE_STATE_DIR" status=""
+  if [ -f "$dir/pull.running" ]; then
+    flock -n "$dir/pull.lock" true 2>/dev/null || return 1
+    rm -f "$dir/pull.running" # left behind by a job that died (e.g. a reboot)
+  fi
+  [ -f "$dir/pull.status" ] || return 0
+  read -r status <"$dir/pull.status" || true
+  rm -f "$dir/pull.status"
+  case "$status" in
+  updated) cage_err "using the newer image downloaded in the background" ;;
+  failed) cage_err "the background image download failed (log: $dir/pull.log); retry with --update" ;;
+  esac
+  return 0
 }
 
 # --- shared slice (combined caps) ---------------------------------------------

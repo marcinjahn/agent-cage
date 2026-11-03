@@ -278,6 +278,13 @@ rebuild picks it up. Do not scatter toolchain installs.
 - Build, tag `latest` + dated tag, push to GHCR.
 - The wrapper pulls `latest` (with a periodic/lazy `podman pull`; don't pull on every
   invocation — gate it, e.g. once/day, to keep launches fast).
+- **A launch never waits for a download.** When the daily check (a cheap `skopeo` digest
+  comparison) finds a newer image, the wrapper says so, starts `podman pull` as a detached
+  background job, and runs the session on the cached image. The next launch picks up the
+  new one and reports the job's outcome ("using the newer image…", or that it failed, with
+  the log in `$XDG_STATE_HOME/agent-cage/pull.log`); launches while it's still running say
+  so. A `flock` keeps concurrent launches to one pull. Only `--update` (the user asked for
+  the newest image now) and a missing image (first run) pull in the foreground.
 - **GHCR auth:** if the image repo is **private**, the host needs `podman login ghcr.io`
   (a PAT with `read:packages`) for the pull to succeed; the README must cover this. A
   public package needs no login. The image is large (dotnet + node + nvim + docker
@@ -296,7 +303,8 @@ Pseudocode:
    questions; the home dir is never mounted). Require it under a work root
    (/home/mnj/code, /home/mnj/triage-issues, /home/mnj/tmp), else error with
    guidance — unless --mount-cwd, which binds the cwd in on the fly (§7).
-2. Ensure base image present (lazy pull of :latest, rate-limited).
+2. Ensure base image present (lazy pull of :latest, rate-limited; an update downloads
+   in the background while this session runs the cached image — §5).
 3. Ensure docker sidecar is up (see §8) — start if missing/unhealthy, else reuse.
 4. exec podman run --rm -it \
      --userns=keep-id \

@@ -17,7 +17,8 @@ usage() {
   cat >&2 <<'EOF'
 usage:
   cage [-u|--update]         interactive shell in a fresh cage container
-                             (--update forces a check for a newer image now)
+                             (--update checks for a newer image now and waits
+                             for it; otherwise updates download in the background)
   cage [-n|--no-update]      skip the registry check; run the cached image as-is
                              (useful on a slow connection)
   cage [--mount-cwd]         also bind-mount the current dir into the cage, so
