@@ -42,6 +42,7 @@ RUN echo -e 'tsflags=nodocs\ninstall_weak_deps=False' >> /etc/dnf/dnf.conf
 # for inspecting crash dumps. ImageMagick provides magick for image
 # conversion/inspection. sqlite provides the sqlite3 CLI. Fedora ships Valkey
 # instead of Redis; valkey-compat-redis provides redis-cli (-> valkey-cli).
+# ShellCheck provides shellcheck for linting shell scripts.
 RUN dnf -y install \
         bash ca-certificates curl tar xz unzip findutils which procps-ng tree \
         fd-find ripgrep \
@@ -62,6 +63,7 @@ RUN dnf -y install \
         ImageMagick \
         sqlite \
         valkey-compat-redis \
+        ShellCheck \
         iputils iproute traceroute mtr bind-utils \
         nmap nmap-ncat tcpdump socat whois net-tools wget telnet lsof \
     && dnf clean all

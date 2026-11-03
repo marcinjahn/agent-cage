@@ -108,7 +108,7 @@ lingering: `sudo loginctl enable-linger $USER`.
 
 - **Image** (`Dockerfile`): Fedora 43 + .NET 10 & 9, node via `fnm`, Python, Ruby, Rust (rustup),
   formatters (csharpier/prettier/stylua/eslint/rustfmt),
-  `jj`/`git`/`gh`/`acli`/`just`/`jq`/`yq`/`difft`/`ctx7`/`pnpm`/`bun`/`terraform`/`tofu`, ImageMagick (`magick`), `sqlite3`, `redis-cli`, docker CLI,
+  `jj`/`git`/`gh`/`acli`/`just`/`jq`/`yq`/`difft`/`ctx7`/`pnpm`/`bun`/`terraform`/`tofu`, ImageMagick (`magick`), `sqlite3`, `redis-cli`, `shellcheck`, docker CLI,
   `kubectl` (read-only access only — see below), mitmproxy (`mitmdump`), the Playwright CLI (with Google Chrome, Firefox and chromium-headless-shell), Claude Code,
   and the GitHub Copilot CLI. Built daily and pushed to GHCR.
 - **Wrappers** (`bin/`): `claude-cage` and `cage` share `_cage-lib.sh`, which assembles all
