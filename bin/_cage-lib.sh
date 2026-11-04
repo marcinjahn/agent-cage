@@ -512,8 +512,9 @@ _cage_add_mounts() {
   # The per-session brokers (bound at the end) take ~0.1 s each to come up, so
   # launch them all now and only wait for their sockets once everything else is
   # assembled.
-  local bus_sock clip_sock display_dir acli_sock
+  local bus_sock notify_sock clip_sock display_dir acli_sock
   bus_sock="$(_cage_dbus_proxy_launch)" || bus_sock=""
+  notify_sock="$(_cage_notify_broker_launch)" || notify_sock=""
   clip_sock="$(_cage_clip_broker_launch)" || clip_sock=""
   acli_sock="$(_cage_acli_broker_launch)" || acli_sock=""
   display_dir="$(_cage_display_broker_launch)" || display_dir=""
@@ -679,6 +680,14 @@ _cage_add_mounts() {
     RUN_ARGS+=(--env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cage/bus")
   fi
 
+  # Clickable notifications: the filtered bus above never delivers click events, so
+  # the Claude hooks post through this broker, which focuses the session's
+  # terminal window on click (DESIGN §9).
+  if [ -n "$notify_sock" ] && _cage_await_socket "$notify_sock" \
+    "notification broker didn't start; notifications won't be clickable in this session"; then
+    _cage_bind ro "$notify_sock" "/run/cage/notify.sock"
+  fi
+
   # Image-only clipboard paste via a host broker (the cage's wl-paste is a shim
   # talking to it), rather than handing the cage the Wayland socket — which would
   # expose the whole clipboard, text included (DESIGN §9).
@@ -724,6 +733,19 @@ _cage_clip_broker_launch() {
   local sock="$dir/clip-$$.sock"
   mkdir -p -m 700 "$dir" || return 1
   setsid -f python3 "$(dirname "${BASH_SOURCE[0]}")/_cage-clip-broker" "$sock" "$$" \
+    </dev/null >/dev/null 2>&1 || return 1
+  printf '%s' "$sock"
+}
+
+# Launch the session's notification broker, echoing its socket path. Like the
+# clipboard broker it watches $$, and it walks up from $$ to find the terminal
+# window to focus.
+_cage_notify_broker_launch() {
+  command -v python3 >/dev/null && command -v notify-send >/dev/null || return 1
+  local dir="${XDG_RUNTIME_DIR:-/tmp}/agent-cage"
+  local sock="$dir/notify-$$.sock"
+  mkdir -p -m 700 "$dir" || return 1
+  setsid -f python3 "$(dirname "${BASH_SOURCE[0]}")/_cage-notify-broker" "$sock" "$$" \
     </dev/null >/dev/null 2>&1 || return 1
   printf '%s' "$sock"
 }

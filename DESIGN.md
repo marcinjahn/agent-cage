@@ -170,7 +170,9 @@ implementation time; do not hardcode beyond what's noted.
     **absent even on host** — that branch is dormant; and strips a `limited ` prefix).
   - `PostToolUse/Edit|Write` → `format.sh` (runs `nvim --headless … conform.format`,
     then `npx eslint --fix` for JS/TS; honors `CLAUDE_NO_FORMAT`).
-  - `Notification` → `notify-send 'Claude Code' 'Needs your decision'` (the `Stop` hook sends 'Finished working').
+  - `Notification` → `notify.sh 'Needs your decision'` (the `Stop` hook sends 'Finished working').
+    On the host it posts a notification that focuses the session's terminal window when
+    clicked; in the cage it hands the text to the notification broker instead (§9).
   - `WorktreeCreate`/`WorktreeRemove` → scripts. `statusLine` → `statusline-command.sh`.
 - Toolchains the cage must provide (host locations are irrelevant — reinstall fresh):
   dotnet, node (multiple, via `.nvmrc`), formatters **csharpier / prettier / stylua /
@@ -190,7 +192,8 @@ implementation time; do not hardcode beyond what's noted.
 - Notifications: Wayland session, `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/cage/bus`
   (a per-session filtered proxy of the host session bus, bound to a path outside the
   runtime tmpfs). `notify-send` talks to the host notification daemon through it; only
-  `org.freedesktop.Notifications` is reachable (§9).
+  `org.freedesktop.Notifications` is reachable (§9). Clickable Claude notifications go through
+  a separate host broker at `/run/cage/notify.sock` (§9).
 - `XDG_RUNTIME_DIR=/run/user/1000`, backed by a writable `tmpfs` the launcher mounts there
   (the cage has no logind to create it). Required by `fnm`, which keeps its per-shell
   "multishell" symlink under the runtime dir; without it node falls back to the system
@@ -401,6 +404,7 @@ Key points:
 | `~/.context7/credentials.json`                   | same (file)                  | ro     | Context7 CLI (`ctx7`) OAuth tokens                                       |
 | `<repo>/etc/cage-claude.md`                      | `/etc/claude-code/CLAUDE.md` | ro     | cage-only agent instructions (managed CLAUDE.md, §8)                     |
 | `$XDG_RUNTIME_DIR/agent-cage/dbus-<pid>.sock`    | `/run/cage/bus`              | ro     | filtered session bus, Notifications only (§9; outside the runtime tmpfs) |
+| `$XDG_RUNTIME_DIR/agent-cage/notify-<pid>.sock`  | `/run/cage/notify.sock`      | ro     | notification broker: posts on the host, click focuses the session (§9)   |
 | `$XDG_RUNTIME_DIR/agent-cage/clip-<pid>.sock`    | `/run/cage/clipboard.sock`   | ro     | image-only clipboard broker (§9)                                         |
 | `$XDG_RUNTIME_DIR/agent-cage/acli-<pid>.sock`    | `/run/cage/acli.sock`        | ro     | acli broker: runs the host's acli, tokens stay in its keyring (§9)       |
 | `$XDG_RUNTIME_DIR/agent-cage/display-<pid>.sock` | `/run/cage/display.sock`     | ro     | on-demand nested display broker (§9; only when `weston` is installed)    |
@@ -663,12 +667,37 @@ the socket inode, not the messages. Instead:
   one path even when the cage addresses the unique name.
 - No `--broadcast`: the daemon emits `ActionInvoked`, `NotificationReplied` and
   `ActivationToken` signals; allowing them would leak other apps' notification actions
-  and inline-reply text. Consequence: no clickable notifications / `notify-send --wait`.
+  and inline-reply text. Consequence: `notify-send --wait` / click actions don't work over
+  this bus — the notification broker below covers the Claude hooks.
 - Fail closed: if `xdg-dbus-proxy` is missing or doesn't come up, the launcher warns and
   the session starts with no bus mounted and no `DBUS_SESSION_BUS_ADDRESS` (notifications
   disabled), never the raw bus.
 - `CAGE_DBUS_LOG=1` on the host makes the proxy log (`--log`) to
   `$XDG_RUNTIME_DIR/agent-cage/dbus-<pid>.log`.
+
+### Clickable notifications (notification broker)
+
+The user's `Notification`/`Stop` hooks (`~/.claude/hooks/notify.sh`) post notifications that
+focus the session's terminal window when clicked. That needs the `ActionInvoked` signal
+(withheld from the filtered bus, above) and the host compositor's IPC (never exposed to the
+cage). So:
+
+- The wrapper starts a per-session **host broker** (`bin/_cage-notify-broker`, python3)
+  on a unix socket under `$XDG_RUNTIME_DIR/agent-cage/`, mounted at `/run/cage/notify.sock`.
+  `notify.sh` sends it one JSON line, `{"summary": …, "body": …}`, when that socket
+  exists, and falls back to a plain `notify-send` over the filtered bus otherwise.
+- The broker posts the notification on the host with `notify-send --action=default=Focus
+  --wait` and, on a click, focuses the compositor window whose pid is the wrapper's (which
+  `exec`s into podman) or one of its ancestors — the terminal the session was launched
+  from. It resolves the window per notification, so launches pay nothing for it.
+  Compositors: umbriel (`UMBRIEL_SOCKET`) and niri (`NIRI_SOCKET`); elsewhere, or when no
+  window matches, notifications are posted without a click action.
+- The cage controls only the text: control characters are stripped, summary/body are
+  length-capped and passed as argv. Which window gets focused is decided host-side. At most
+  16 notifications wait for a click at once; past that they're posted unclickable, so the
+  cage can't pile up host processes.
+- Exits with the session (watched pid gone), stopping its pending `notify-send --wait`
+  processes; notifications still on screen then just stop reacting to clicks.
 
 ### Clipboard image paste
 
@@ -897,7 +926,7 @@ hook, or shell-prompt customization.
 | Symlinks outside `~/code`                        | `~/.local/share/puff/projects` ro mount (covers all puff links)        |
 | Access `~/scripts`                               | ro mount, on PATH                                                      |
 | Sessions shared both ways                        | Path identity + shared `~/.claude`                                     |
-| Notification hook → host                         | filtered dbus proxy socket mount (§9) + `notify-send` in image         |
+| Notification hook → host                         | host notification broker, click focuses the session's window (§9)      |
 | Paste images (Ctrl+V)                            | host image-only clipboard broker + `wl-paste` shim in image (§9)       |
 | Formatting hook (nvim)                           | Fedora base + ro mounts of nvim config/data + formatters on PATH       |
 | `CLAUDE_NO_FORMAT` etc.                          | Wrapper forwards `--env`                                               |
@@ -926,6 +955,9 @@ Implement, then verify each of these empirically:
       `fnm use --install-if-missing` (an unbaked version must be fetched on demand into the
       FNM_DIR volume); verify `node -v` matches `.nvmrc` in a fresh cage, not just after `cd`.
 - [ ] **Notifications** from the cage appear on the host desktop.
+- [ ] **Clickable notifications**: a `notify.sh` notification sent from the cage is posted by
+      the host broker with a click action; clicking it focuses the window that launched the
+      session.
 - [ ] **Only Notifications reachable on the bus**: `busctl --user list` in the cage shows
       just `org.freedesktop.DBus`, `org.freedesktop.Notifications` and the cage's own name;
       calls to systemd1, secrets, or other interfaces/paths of the notification daemon's

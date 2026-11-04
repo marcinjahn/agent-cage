@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+# Host-side clickable-notification broker for a cage session (DESIGN §9).
+#
+# Usage: _cage-notify-broker <socket-path> <pid-to-watch>
+#
+# The cage's filtered bus can send notifications but never sees ActionInvoked
+# (it would leak other apps' actions), so a notification sent from the cage
+# can't react to a click. The cage's Claude hooks send their notifications here
+# instead; the broker posts them on the host and, when one is clicked, focuses
+# the terminal window this session runs in: the compositor window whose pid is
+# the watched pid (the wrapper, which execs into podman) or one of its
+# ancestors. Supported compositors: umbriel and niri; elsewhere notifications
+# are posted without a click action. The cage controls only the text — never
+# which window gets focused. Exits (dropping pending click listeners, removing
+# the socket) once the watched pid is gone.
+#
+# Protocol: one JSON line per connection, no reply.
+#   {"summary": "...", "body": "..."}
+
+import json
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+
+MAX_REQUEST = 4096
+MAX_SUMMARY = 120
+MAX_BODY = 1000
+MAX_PENDING = 16
+APP_NAME = "Claude Code"
+CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+pending = set()
+pending_lock = threading.Lock()
+
+
+def clean(value, limit):
+    if not isinstance(value, str):
+        return ""
+    return CONTROL_CHARS.sub("", value)[:limit]
+
+
+def run_json(cmd):
+    try:
+        out = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        ).stdout
+        return json.loads(out)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+
+
+def list_windows():
+    """Returns (windows, focus_cmd) for the running compositor, or (None, None)."""
+    if os.environ.get("UMBRIEL_SOCKET") and shutil.which("umbriel"):
+        return run_json(["umbriel", "windows", "--json"]), lambda w: [
+            "umbriel", "msg", "window-focus", str(w["id"])
+        ]
+    if os.environ.get("NIRI_SOCKET") and shutil.which("niri"):
+        return run_json(["niri", "msg", "--json", "windows"]), lambda w: [
+            "niri", "msg", "action", "focus-window", "--id", str(w["id"])
+        ]
+    return None, None
+
+
+def parent_pid(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            # The comm field may contain spaces and parens; ppid follows its closing paren.
+            return int(f.read().rsplit(")", 1)[1].split()[1])
+    except (OSError, IndexError, ValueError):
+        return 0
+
+
+def session_window():
+    windows, focus_cmd = list_windows()
+    if not isinstance(windows, list):
+        return None, None
+    by_pid = {w.get("pid"): w for w in windows if isinstance(w, dict)}
+    pid = WATCH_PID
+    while pid > 1:
+        if pid in by_pid:
+            return by_pid[pid], focus_cmd
+        pid = parent_pid(pid)
+    return None, None
+
+
+def notify(summary, body):
+    window, focus_cmd = session_window()
+    with pending_lock:
+        clickable = window is not None and len(pending) < MAX_PENDING
+    if not clickable:
+        subprocess.run(
+            ["notify-send", f"--app-name={APP_NAME}", "--", summary, body],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return
+
+    proc = subprocess.Popen(
+        ["notify-send", f"--app-name={APP_NAME}", "--action=default=Focus", "--wait", "--", summary, body],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    with pending_lock:
+        pending.add(proc)
+    try:
+        action = proc.communicate()[0].decode(errors="replace").strip()
+    finally:
+        with pending_lock:
+            pending.discard(proc)
+    if action == "default":
+        subprocess.run(
+            focus_cmd(window),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+
+def handle(conn):
+    with conn:
+        conn.settimeout(5)
+        try:
+            request = json.loads(conn.makefile("rb").readline(MAX_REQUEST))
+        except (OSError, ValueError):
+            return
+    if not isinstance(request, dict):
+        return
+    summary = clean(request.get("summary"), MAX_SUMMARY) or APP_NAME
+    body = clean(request.get("body"), MAX_BODY)
+    notify(summary, body)
+
+
+def watch():
+    while True:
+        try:
+            os.kill(WATCH_PID, 0)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            pass
+        time.sleep(1)
+    with pending_lock:
+        for proc in pending:
+            proc.terminate()
+    try:
+        os.unlink(SOCKET_PATH)
+    except OSError:
+        pass
+    os._exit(0)
+
+
+def main():
+    global SOCKET_PATH, WATCH_PID
+    SOCKET_PATH, WATCH_PID = sys.argv[1], int(sys.argv[2])
+    try:
+        os.unlink(SOCKET_PATH)
+    except FileNotFoundError:
+        pass
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    old_umask = os.umask(0o177)
+    server.bind(SOCKET_PATH)
+    os.umask(old_umask)
+    server.listen(16)
+    threading.Thread(target=watch, daemon=True).start()
+    while True:
+        conn, _ = server.accept()
+        threading.Thread(target=handle, args=(conn,), daemon=True).start()
+
+
+if __name__ == "__main__":
+    main()
