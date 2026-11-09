@@ -821,6 +821,11 @@ _cage_add_envs() {
   RUN_ARGS+=(
     --env AGENT_CAGE=1                    # cage marker (DESIGN §11)
     --env "DOCKER_HOST=unix://$CAGE_SOCK" # -> the sidecar (DESIGN §8)
+    # A privileged Ryuk gets every sidecar /dev node copied in, so one host device
+    # unplugged since the sidecar started fails each test run. Ryuk only needs the
+    # socket, which works unprivileged here (DESIGN §8).
+    --env "TESTCONTAINERS_RYUK_CONTAINER_PRIVILEGED=false" # .NET, Java
+    --env "TESTCONTAINERS_RYUK_PRIVILEGED=false"           # Node
     --env "XDG_RUNTIME_DIR=/run/user/1000"
     --env "TZ=Europe/Warsaw"
     --env "DISABLE_AUTOUPDATER=1"
@@ -947,7 +952,10 @@ cage_sidecar_start() {
   # — `error creating device nodes: mount src=/dev/... no such file or directory`.
   # Masking them swaps each for /dev/null or an empty tmpfs, which stay valid (a
   # plain --tmpfs is clobbered by privileged's recursive /dev re-bind; an explicit
-  # mask survives). The sidecar needs no host hardware.
+  # mask survives). The sidecar needs no host hardware. A mask only lasts as long
+  # as its host node, though: unlinking a file detaches every mount stacked on it
+  # in other mount namespaces, so an unplug strips the mask and leaves a bind to a
+  # deleted inode. _cage_sidecar_check spots those and they're dropped on launch.
   #
   # --userns=keep-id aligns the daemon's socket owner with the host uid so cage
   # sessions can use it; but it maps only the host's single 65536-id subuid block
@@ -985,20 +993,28 @@ cage_sidecar_start() {
   return 1
 }
 
+# In mountinfo, the root field of a bind whose source was unlinked ends in
+# "//deleted" and is followed by the mount point.
+_CAGE_STALE_DEV_MARK="//deleted /dev/"
+
 # A sidecar created before a dir joined CAGE_SIDECAR_SHARED_DIRS lacks its mount,
 # and one whose host dir was deleted + recreated (e.g. ~/tmp) still
 # holds the old, now-detached dir. Either way docker would silently see an empty
 # dir, so compare inodes with the host.
 #
-# Runs on every launch, so the health check and all the inode reads share ONE
-# `podman exec` (each costs 0.1-0.2 s). Returns 2 when the sidecar isn't running
-# or its daemon doesn't respond, 1 when it's healthy but its mounts are stale.
+# Runs on every launch, so the health check, the inode reads and the stale-device
+# scan share ONE `podman exec` (each costs 0.1-0.2 s). Returns 2 when the sidecar
+# isn't running or its daemon doesn't respond, 1 when it's healthy but its mounts
+# are stale, 3 when it only holds binds of since-unplugged host devices.
 _cage_sidecar_check() {
   local dir inodes rc=0
-  inodes="$(podman exec "$CAGE_SIDECAR_NAME" sh -c 'docker info >/dev/null 2>&1 || exit 99; stat -c %i "$@"' \
-    sh "${CAGE_SIDECAR_SHARED_DIRS[@]}" 2>/dev/null)" || rc=$?
+  inodes="$(podman exec "$CAGE_SIDECAR_NAME" sh -c '
+    docker info >/dev/null 2>&1 || exit 99
+    stat -c %i "$@" || exit 1
+    grep -qF "$0" /proc/self/mountinfo && exit 98
+    exit 0' "$_CAGE_STALE_DEV_MARK" "${CAGE_SIDECAR_SHARED_DIRS[@]}" 2>/dev/null)" || rc=$?
   case "$rc" in
-  0) ;;
+  0 | 98) ;;
   1) return 1 ;; # stat: a shared dir is missing inside the sidecar
   *) return 2 ;; # 99 = daemon down; podman's own 125-127 = not running/absent
   esac
@@ -1006,6 +1022,17 @@ _cage_sidecar_check() {
     [ -d "$dir" ] || return 1
   done
   [ "$inodes" = "$(stat -c %i "${CAGE_SIDECAR_SHARED_DIRS[@]}")" ] || return 1
+  [ "$rc" = 0 ] || return 3
+}
+
+# Unmounts the binds of unplugged host devices (see cage_sidecar_start) and
+# removes their placeholder nodes, so nested runc no longer tries to copy them.
+# In place, unlike a recreate, which would kill other sessions' test containers.
+_cage_sidecar_drop_stale_devs() {
+  podman exec --user 0 "$CAGE_SIDECAR_NAME" sh -c '
+    grep -F "$0" /proc/self/mountinfo | cut -d" " -f5 | while read -r node; do
+      umount "$node" && rm -f "$node" || exit 1
+    done' "$_CAGE_STALE_DEV_MARK" >/dev/null 2>&1
 }
 
 cage_sidecar_ensure() {
@@ -1014,6 +1041,10 @@ cage_sidecar_ensure() {
   case "$rc" in
   0) return 0 ;;
   1) cage_err "docker sidecar's shared dirs are missing or stale; recreating…" ;;
+  3)
+    _cage_sidecar_drop_stale_devs && return 0
+    cage_err "docker sidecar holds binds of unplugged host devices it couldn't drop; recreating…"
+    ;;
   *)
     podman container exists "$CAGE_SIDECAR_NAME" &&
       cage_err "docker sidecar present but unhealthy; recreating…"
@@ -1034,6 +1065,9 @@ cage_sidecar_status() {
     echo "daemon: healthy ($CAGE_SOCK)"
     podman exec "$CAGE_SIDECAR_NAME" docker version --format \
       'client: {{.Client.Version}}  server: {{.Server.Version}}' 2>/dev/null || true
+    if podman exec "$CAGE_SIDECAR_NAME" grep -qF "$_CAGE_STALE_DEV_MARK" /proc/self/mountinfo; then
+      echo "host devices: binds of unplugged devices present (dropped on next launch)"
+    fi
   else
     echo "daemon: NOT responding"
   fi
@@ -1047,9 +1081,27 @@ cage_sidecar_stop() {
   fi
 }
 
+# The sock volume is left alone: running sessions mount it (`volume rm -f` would
+# remove them), and the new daemon replaces the socket inside it, so they reconnect.
+#
+# Podman drops a volume's record before deleting its files. When that delete
+# fails, a volume re-created under the same name silently reuses the leftover
+# dir, chowned to the sidecar's root, and its dockerd can't write there. Hence the
+# path is derived from the store rather than the (possibly gone) volume record.
 cage_sidecar_reset() {
+  local data_dir
+  data_dir="$(podman info --format '{{.Store.VolumePath}}')/$CAGE_VOL_DOCKER_DATA"
   cage_sidecar_stop
-  podman volume rm -f "$CAGE_VOL_DOCKER_DATA" "$CAGE_VOL_SOCK" >/dev/null 2>&1 || true
-  cage_err "docker sidecar data + socket volumes removed"
+  if podman volume exists "$CAGE_VOL_DOCKER_DATA"; then
+    podman volume rm "$CAGE_VOL_DOCKER_DATA" >/dev/null || true
+  fi
+  if [ -e "$data_dir" ]; then
+    podman unshare rm -rf "$data_dir" || true
+  fi
+  if [ -e "$data_dir" ]; then
+    cage_err "couldn't delete $data_dir; not starting the docker sidecar on top of it"
+    return 1
+  fi
+  cage_err "docker sidecar data volume removed"
   cage_sidecar_ensure
 }

@@ -543,23 +543,34 @@ original plan (`--device /dev/fuse` + fuse-overlayfs, no privilege lifts) does n
 daemon comes up healthy, but every container it tries to launch dies with
 `error mounting "proc"/"sysfs" … operation not permitted`. Rootless Podman masks paths and
 drops capabilities on the sidecar, and a nested rootless dockerd cannot mount fresh `/proc`
-and `/sys` for its containers under those restrictions. We lift exactly those restrictions —
-`--cap-add=all`, `--security-opt seccomp=unconfined`, `--security-opt apparmor=unconfined`,
-`--security-opt unmask=all`, `--security-opt label=disable`. Crucially, because the sidecar
-is launched by **rootless** Podman, this stays entirely inside the user's namespace (uid 1000
+and `/sys` for its containers under those restrictions. The sidecar therefore runs
+`--privileged` (plus `label=disable`); the à-la-carte lifts (`--cap-add=all`,
+seccomp/apparmor unconfined, `unmask=all`) are not enough — the nested sysfs mount still
+gets EPERM. Crucially, because the sidecar is launched by **rootless** Podman, this stays
+entirely inside the user's namespace (uid 1000 + the unprivileged subuid block) — it does
+**not** reintroduce root-on-host. (Distinct from the §2 rejection, which concerns _rootful_
+privilege for the cage sessions.)
 
-- the unprivileged subuid block) — it does **not** reintroduce root-on-host. (Distinct from
-  the §2 rejection, which concerns _rootful_ privilege for the cage sessions.)
+**Host devices.** On rootless Podman, `--privileged` also bind-mounts every host device node
+into the sidecar, one bind per node, snapshotted at creation. The nested rootless runc
+re-binds each of them into every _privileged_ container it launches, which fails for
+group-owned nodes (`/dev/bus/usb/*`,
+[containers/podman#4900](https://github.com/containers/podman/issues/4900)) and for nodes
+unplugged since (a dock or monitor re-plug recreates `/dev/drm_dp_aux*`) —
+`error creating device nodes: mount src=/dev/… no such file or directory`. Three layers:
 
-We deliberately **avoid `--privileged`**: on Podman it additionally bind-mounts the host's
-entire `/dev` into the sidecar, leaking host hardware (notably hot-plugged `/dev/bus/usb/*`
-nodes). The nested rootless runc then fails to set up those group-owned device nodes for
-every container it launches — `error creating device nodes: mount src=/dev/bus/usb/… ` / OCI
-`BadRequest` — so testcontainers and any detached container silently never reach "running"
-([containers/podman#4900](https://github.com/containers/podman/issues/4900)). The sidecar
-needs zero host devices; Podman still provides the standard `/dev/null`,`zero`,… set in
-every container regardless of the lifts above. Storage uses the native `overlayfs` driver;
-`CAGE_SIDECAR_STORAGE` can still force `vfs`.
+- The wrapper masks every host device the sidecar doesn't need (`_cage_sidecar_dev_masks`;
+  it needs none).
+- A mask only lives as long as its host node: unlinking a file detaches every mount stacked
+  on it in other mount namespaces, so an unplug strips the mask and leaves a bind to a
+  deleted inode (`…//deleted` in mountinfo). The per-launch check spots those and the
+  wrapper unmounts them inside the sidecar in place — a recreate would kill other sessions'
+  running test containers.
+- Sessions get `TESTCONTAINERS_RYUK_CONTAINER_PRIVILEGED=false` (.NET/Java) and
+  `TESTCONTAINERS_RYUK_PRIVILEGED=false` (Node). Ryuk defaults to privileged but only needs
+  the socket, so testcontainers keeps working after an unplug even before the next launch.
+
+Storage uses the native `overlayfs` driver; `CAGE_SIDECAR_STORAGE` can still force `vfs`.
 
 **Subordinate-id map — required for `keep-id`.** The sidecar uses `--userns=keep-id` so the
 daemon's socket is owned by the host uid (1000) and cage sessions can use it. But `keep-id`
@@ -601,14 +612,19 @@ otherwise get wrong. The source sits in the rw `~/code`, so a cage agent could e
 accepted, since it's instructions, not host-executed code.
 
 **Networking:** sidecar on host network so testcontainers' random mapped ports are
-reachable from the (also host-networked) cage sessions. Validate testcontainers + Ryuk
-behavior; document any needed `TESTCONTAINERS_*` env defaults.
+reachable from the (also host-networked) cage sessions. The only `TESTCONTAINERS_*`
+defaults are the unprivileged-Ryuk ones above.
 
 **Disk growth & cleanup:** the shared daemon accumulates pulled images, stopped test
 containers, volumes, and networks over time (especially if Ryuk fails to reap). The
 sidecar's docker data lives on a dedicated named volume. `cage docker reset` recreates the
 sidecar (prunes everything); document running it periodically, and rely on Ryuk for
-per-test cleanup.
+per-test cleanup. Reset deletes only the data volume: the sock volume is mounted by running
+sessions (`podman volume rm -f` would remove them), and they reconnect to the new daemon's
+socket in it. Podman drops a volume's record before deleting its files, so a failed delete
+leaves a dir that a same-named re-created volume silently reuses — chowned to the sidecar's
+root, which leaves dockerd unable to start ("need writable HOME"). Reset therefore removes
+the volume's store dir itself if it lingers and refuses to start the sidecar on top of it.
 
 ---
 
@@ -687,7 +703,7 @@ cage). So:
   `notify.sh` sends it one JSON line, `{"summary": …, "body": …}`, when that socket
   exists, and falls back to a plain `notify-send` over the filtered bus otherwise.
 - The broker posts the notification on the host with `notify-send --action=default=Focus
-  --wait` and, on a click, focuses the compositor window whose pid is the wrapper's (which
+--wait` and, on a click, focuses the compositor window whose pid is the wrapper's (which
   `exec`s into podman) or one of its ancestors — the terminal the session was launched
   from. It resolves the window per notification, so launches pay nothing for it.
   Compositors: umbriel (`UMBRIEL_SOCKET`) and niri (`NIRI_SOCKET`); elsewhere, or when no
@@ -941,14 +957,13 @@ hook, or shell-prompt customization.
 Implement, then verify each of these empirically:
 
 - [x] **Rootless docker sidecar** starts reliably and launches containers. Requires
-      rootless-Podman privilege lifts (caps + unmask + seccomp/apparmor off, but NOT
-      `--privileged` — see §8) + a fitted `/etc/subuid`+`/etc/subgid` map; the bare
-      no-lifts plan could not mount `/proc`/`/sys` in nested containers, and `--privileged`
-      leaks host `/dev` (USB hot-plug breaks container init). Native `overlayfs` storage.
-      This is the highest-risk component.
+      rootless-Podman `--privileged` with host devices masked (stale binds of unplugged
+      devices dropped on launch — see §8) + a fitted `/etc/subuid`+`/etc/subgid` map; the
+      bare no-lifts plan could not mount `/proc`/`/sys` in nested containers. Native
+      `overlayfs` storage. This is the highest-risk component.
 - [ ] **testcontainers** end-to-end: spin a DB from a test under `~/code`, with
-      `DOCKER_HOST` → sidecar socket; verify port reachability and Ryuk cleanup. Document
-      any `TESTCONTAINERS_*` env needed.
+      `DOCKER_HOST` → sidecar socket; verify port reachability and Ryuk cleanup. Ryuk
+      verified to start unprivileged against the sidecar socket.
 - [ ] **Formatting hook** produces byte-identical output to the host for C#/TS/Lua files.
 - [ ] **`.nvmrc` auto-selection** works in Claude's non-interactive Bash shells: `BASH_ENV`
       sources `fnm env` then applies the cwd's `.nvmrc`/`.node-version` with
