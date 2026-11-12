@@ -95,6 +95,15 @@ RUN KUBECTL_VERSION="$(curl -fsSL https://dl.k8s.io/release/stable.txt)" \
         -o /usr/local/bin/kubectl \
     && chmod +x /usr/local/bin/kubectl
 
+# Helm — latest release. Binaries live on get.helm.sh (not GitHub release
+# assets), so the version comes from the GitHub release tag. Cluster access
+# goes through the same read-only kubeconfig as kubectl (--kube).
+RUN HELM_VERSION="$(curl -fsSL https://api.github.com/repos/helm/helm/releases/latest | jq -r '.tag_name')" \
+    && curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" -o /tmp/helm.tgz \
+    && tar -xzf /tmp/helm.tgz -C /usr/local/bin --strip-components=1 linux-amd64/helm \
+    && chmod +x /usr/local/bin/helm \
+    && rm -f /tmp/helm.tgz
+
 # neovim — latest upstream release (Fedora's package lags a minor version behind).
 # Drives the formatting hook (DESIGN §9).
 RUN NVIM_URL="$(curl -fsSL https://api.github.com/repos/neovim/neovim/releases/latest \
