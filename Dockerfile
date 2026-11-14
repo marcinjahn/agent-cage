@@ -279,6 +279,8 @@ RUN groupadd -g 1000 mnj \
         /home/mnj/.nuget/packages \
         /home/mnj/.microsoft \
         /home/mnj/.local/state/nvim \
+        /home/mnj/.m2/repository \
+        /home/mnj/.gradle \
         # Pre-create ~/.config owned by mnj: the cage bind-mounts nested paths
         # (~/.config/jj, nvim, gh, …) but not ~/.config itself, so without this
         # podman auto-creates the parent as root and mnj-owned tools can't write
@@ -381,6 +383,16 @@ USER mnj
 # root dance as Python since dnf needs root.
 USER root
 RUN dnf -y install ruby rubygems \
+    && dnf clean all
+USER mnj
+
+# Java — OpenJDK 25 (the current LTS) + Maven from Fedora's repo. The LTS line
+# is pinned rather than java-latest-openjdk so builds target what projects
+# actually ship on. Gradle isn't packaged: projects bring it via ./gradlew,
+# which only needs the JDK. The Maven repo (~/.m2/repository) and ~/.gradle are
+# cache volumes (DESIGN §7). Same root dance as Python since dnf needs root.
+USER root
+RUN dnf -y install java-25-openjdk-devel maven \
     && dnf clean all
 USER mnj
 

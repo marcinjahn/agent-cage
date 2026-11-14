@@ -518,6 +518,8 @@ config, never mount the ambient credential). Concretely:
 | dotnet home        | `~/.dotnet`                         | first-run state, workload manifests                    |
 | NuGet HTTP cache   | `~/.local/share/NuGet`              | feed metadata, so restores don't re-query feeds        |
 | cargo registry/git | `~/.cargo/registry`, `~/.cargo/git` | crate index + sources                                  |
+| Maven repo         | `~/.m2/repository`                  | downloaded artifacts                                   |
+| Gradle home        | `~/.gradle`                         | wrapper distributions + dependency cache               |
 
 These caches are volumes rather than binds of the host's own caches: they hold code that
 host builds would later run, so a shared rw bind would let the cage plant code outside it.

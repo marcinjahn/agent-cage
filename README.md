@@ -109,7 +109,7 @@ lingering: `sudo loginctl enable-linger $USER`.
 
 ## How it works (quick map)
 
-- **Image** (`Dockerfile`): Fedora 43 + .NET 10 & 9, node via `fnm`, Python, Ruby, Rust (rustup),
+- **Image** (`Dockerfile`): Fedora 43 + .NET 10 & 9, node via `fnm`, Python, Ruby, Rust (rustup), Java (OpenJDK 25 LTS + Maven),
   formatters (csharpier/prettier/stylua/eslint/rustfmt),
   `jj`/`git`/`gh`/`acli`/`just`/`jq`/`yq`/`difft`/`ctx7`/`pnpm`/`bun`/`terraform`/`tofu`, ImageMagick (`magick`), `sqlite3`, `redis-cli`, `shellcheck`, docker CLI,
   `kubectl` and `helm` (read-only cluster access only — see below), mitmproxy (`mitmdump`), the Playwright CLI (with Google Chrome, Firefox and chromium-headless-shell), Claude Code,

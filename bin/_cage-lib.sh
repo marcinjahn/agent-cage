@@ -68,6 +68,8 @@ CAGE_VOL_DOTNET="agent-cage-dotnet"
 CAGE_VOL_NUGET_HTTP="agent-cage-nuget-http"
 CAGE_VOL_CARGO_REGISTRY="agent-cage-cargo-registry"
 CAGE_VOL_CARGO_GIT="agent-cage-cargo-git"
+CAGE_VOL_MAVEN="agent-cage-maven"
+CAGE_VOL_GRADLE="agent-cage-gradle"
 
 # Container-side fixed paths (single-user; uid 1000 / home /home/mnj).
 CAGE_HOME="/home/mnj"
@@ -543,7 +545,7 @@ _cage_add_mounts() {
 
   # Caches that would otherwise start cold in every --rm session. Volumes, not
   # binds of the host's own caches: these hold code that host builds would later
-  # run (cargo sources, nupkgs), so a shared rw bind would let the cage plant code
+  # run (cargo sources, nupkgs, jars), so a shared rw bind would let the cage plant code
   # outside it. Only chosen subdirs of ~/.cache: the image bakes Copilot's binary
   # into ~/.cache/copilot, which a whole-dir volume would freeze at its first copy.
   RUN_ARGS+=(
@@ -553,6 +555,8 @@ _cage_add_mounts() {
     -v "$CAGE_VOL_NUGET_HTTP:$CAGE_HOME/.local/share/NuGet"
     -v "$CAGE_VOL_CARGO_REGISTRY:$CAGE_HOME/.cargo/registry"
     -v "$CAGE_VOL_CARGO_GIT:$CAGE_HOME/.cargo/git"
+    -v "$CAGE_VOL_MAVEN:$CAGE_HOME/.m2/repository"
+    -v "$CAGE_VOL_GRADLE:$CAGE_HOME/.gradle"
   )
 
   # Share the host nuget restore cache (rw) so builds reuse already-downloaded
