@@ -265,7 +265,9 @@ ENV PATH=/home/mnj/.local/bin:/home/mnj/.cargo/bin:/opt/dotnet:/opt/dotnet-tools
 RUN dotnet tool install --tool-path /opt/dotnet-tools csharpier
 
 # csharp-ls — C# LSP server used by claude's LSP plugin. Same baked-tool path.
-RUN dotnet tool install --tool-path /opt/dotnet-tools csharp-ls
+# Pinned: 0.29.0+ ships only a net11.0 build, which the .NET 10 SDK refuses to install.
+ARG CSHARP_LS_VERSION=0.28.0
+RUN dotnet tool install --tool-path /opt/dotnet-tools csharp-ls --version "$CSHARP_LS_VERSION"
 
 # .NET diagnostics tools — inspect runtime counters, collect GC dumps, and decompile assemblies.
 RUN dotnet tool install --tool-path /opt/dotnet-tools dotnet-counters \
