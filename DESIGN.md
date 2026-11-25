@@ -111,6 +111,20 @@ other host abstract socket too. Details:
   containers started through it (even `--network host`) live in a separate network
   namespace and see none of the host's abstract sockets.
 
+**Accepted — `/proc` unmasked (for cpak):** podman normally hides a few `/proc` entries
+(`kcore`, `keys`, `timer_list`, `interrupts`, `acpi`, `scsi`, …) and makes others read-only
+(`sys`, `sysrq-trigger`, `irq`, `bus`, `fs`) by mounting over them. The kernel won't mount a
+fresh `proc` in a nested pid namespace while any `/proc` path is overmounted, so cpak
+(which creates its own namespaces) can't start any package with them in place: `mount:/proc:
+... operation not permitted`. The wrappers pass `--security-opt unmask=/proc/*`. In a
+rootless cage this mostly removes defense in depth: the root-only entries (`kcore`,
+`sysrq-trigger`, `timer_list`, …) are owned by the host's root, which isn't mapped into the
+cage, so they stay unreadable; `/proc/sys` writes still need ownership of the sysctl's
+namespace, which the host network/IPC/UTS namespaces deny. What becomes visible is
+informational: per-IRQ counters in `/proc/interrupts` (`/proc/stat` already exposes them),
+ACPI/SCSI info, and the uid's own key descriptions in `/proc/keys`. The `/sys` masks
+stay in place, because cpak doesn't need them lifted.
+
 **Accepted risk — secret exfiltration (not mitigated for now):** the cage mounts
 credentials (docker/npm/nuget/.NET user secrets/gh, and the Claude token in
 `~/.claude/.credentials.json`) readable by a full-permissions agent, with **open network
@@ -520,11 +534,18 @@ config, never mount the ambient credential). Concretely:
 | cargo registry/git | `~/.cargo/registry`, `~/.cargo/git` | crate index + sources                                  |
 | Maven repo         | `~/.m2/repository`                  | downloaded artifacts                                   |
 | Gradle home        | `~/.gradle`                         | wrapper distributions + dependency cache               |
+| cpak store         | `~/.local/share/cpak`               | installed cpak packages, OCI layers, app state         |
 
 These caches are volumes rather than binds of the host's own caches: they hold code that
 host builds would later run, so a shared rw bind would let the cage plant code outside it.
 Only chosen subdirs of `~/.cache` are covered, because the image bakes Copilot's binary into
 `~/.cache/copilot`, which a whole-directory volume would freeze at its first copy.
+
+The cpak store is a volume for a different reason: cpak runs each package on OverlayFS with
+its upperdir inside the store, and overlay can't use the cage's own overlay root as an
+upperdir. A volume sits on the host filesystem, so it works. The cage's `/tmp` is on that
+overlay root too, so `cpak doctor` reports `rootless OverlayFS` as failed because it tests in
+`$TMPDIR`. Packages still run. `TMPDIR=~/tmp cpak doctor` gives the real result.
 
 ---
 

@@ -70,6 +70,7 @@ CAGE_VOL_CARGO_REGISTRY="agent-cage-cargo-registry"
 CAGE_VOL_CARGO_GIT="agent-cage-cargo-git"
 CAGE_VOL_MAVEN="agent-cage-maven"
 CAGE_VOL_GRADLE="agent-cage-gradle"
+CAGE_VOL_CPAK="agent-cage-cpak"
 
 # Container-side fixed paths (single-user; uid 1000 / home /home/mnj).
 CAGE_HOME="/home/mnj"
@@ -328,6 +329,9 @@ cage_build_run_args() {
     --userns=keep-id             # host uid 1000 <-> container uid 1000 (DESIGN §6)
     --network host               # bidirectional port-forwarding (DESIGN §10)
     --security-opt label=disable # do NOT relabel ~/code (~75 GB); DESIGN §7
+    # The kernel refuses a fresh /proc mount in a nested pid namespace while any
+    # /proc path is overmounted, so podman's masks would break cpak (DESIGN §2).
+    --security-opt 'unmask=/proc/*'
     --memory="$CAGE_MEMORY"
     --cpus="$CAGE_CPUS"
     --pids-limit="$CAGE_PIDS"
@@ -541,6 +545,8 @@ _cage_add_mounts() {
     -v "$CAGE_VOL_NPM:$CAGE_HOME/.npm"
     -v "$CAGE_VOL_NVIM_STATE:$CAGE_HOME/.local/state/nvim"
     -v "$CAGE_VOL_SOCK:/sock"
+    # cpak's store: its OverlayFS upperdirs can't live on the cage's own overlay root.
+    -v "$CAGE_VOL_CPAK:$CAGE_HOME/.local/share/cpak"
   )
 
   # Caches that would otherwise start cold in every --rm session. Volumes, not

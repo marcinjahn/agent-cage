@@ -214,6 +214,20 @@ RUN MITM_VERSION="$(curl -fsSL https://api.github.com/repos/mitmproxy/mitmproxy/
     && tar -xzf /tmp/mitmproxy.tgz -C /usr/local/bin mitmdump mitmproxy mitmweb \
     && rm -f /tmp/mitmproxy.tgz
 
+# cpak (OCI application packages, cpak.it) — latest release. Two static
+# binaries that must sit in the same directory: cpak looks for cpak-storaged next
+# to itself first. Checked against the release's SHA256SUMS. Running packages
+# needs the cage's /proc unmasked and the store on a non-overlay volume (DESIGN §7).
+RUN CPAK_BASE="https://github.com/Containerpak/cpak/releases/download/$(curl -fsSL https://api.github.com/repos/Containerpak/cpak/releases/latest | jq -r '.tag_name')" \
+    && mkdir /tmp/cpak \
+    && curl -fsSL "$CPAK_BASE/SHA256SUMS" -o /tmp/cpak/SHA256SUMS \
+    && curl -fsSL "$CPAK_BASE/cpak-linux-amd64" -o /tmp/cpak/cpak-linux-amd64 \
+    && curl -fsSL "$CPAK_BASE/cpak-storaged-linux-amd64" -o /tmp/cpak/cpak-storaged-linux-amd64 \
+    && (cd /tmp/cpak && sha256sum -c --ignore-missing --strict SHA256SUMS) \
+    && install -m755 /tmp/cpak/cpak-linux-amd64 /usr/local/bin/cpak \
+    && install -m755 /tmp/cpak/cpak-storaged-linux-amd64 /usr/local/bin/cpak-storaged \
+    && rm -rf /tmp/cpak
+
 # fnm (node version manager) binary on PATH; node versions live in a volume (§7).
 RUN curl -fsSL https://fnm.vercel.app/install \
         | bash -s -- --install-dir /usr/local/bin --skip-shell
@@ -281,6 +295,7 @@ RUN groupadd -g 1000 mnj \
         /home/mnj/.local/state/nvim \
         /home/mnj/.m2/repository \
         /home/mnj/.gradle \
+        /home/mnj/.local/share/cpak \
         # Pre-create ~/.config owned by mnj: the cage bind-mounts nested paths
         # (~/.config/jj, nvim, gh, …) but not ~/.config itself, so without this
         # podman auto-creates the parent as root and mnj-owned tools can't write
