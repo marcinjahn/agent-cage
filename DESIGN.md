@@ -48,7 +48,7 @@ notifications, port access, testcontainers).
 
 **Deliberately reachable / destroyable (accepted):**
 
-- `~/code` (rw) and agent state in `~/.claude` (rw, _except_ the host-executed scripts —
+- `~/code` and `~/code-private` (rw) and agent state in `~/.claude` (rw, _except_ the host-executed scripts —
   see below). The work and the agent state.
 - `~/tmp`, including Claude Code's scratchpads in `~/tmp/claude-1000` (rw, shared with the
   host at the identical path) — scratch space, deliberately not isolated so ad-hoc files pass
@@ -63,8 +63,8 @@ notifications, port access, testcontainers).
   (`cage-display start`, §9) — what the user types into it is visible to the cage. While
   that window is up, the FIDO interface of any plugged-in security key is attached into
   the cage too (raw CTAP access, §9; `CAGE_FIDO=0` keeps it out).
-- Anything reachable through the **docker sidecar**, bounded to `~/code` and `~/tmp`
-  (see §8) — both of which the cage can already write.
+- Anything reachable through the **docker sidecar**, bounded to `~/code`, `~/code-private` and `~/tmp`
+  (see §8) — all of which the cage can already write.
 
 **Closed escape path — host-executed `~/.claude` scripts (read-only in cage):**
 `~/.claude` is mounted rw so sessions/history work, BUT `~/.claude/hooks/`,
@@ -318,7 +318,8 @@ Pseudocode:
 ```
 1. Resolve CWD. If it is $HOME itself, cd to ~/tmp/cage-home (quick, unrelated
    questions; the home dir is never mounted). Require it under a work root
-   (/home/mnj/code, /home/mnj/triage-issues, /home/mnj/tmp), else error with
+   (/home/mnj/code, /home/mnj/code-private, /home/mnj/triage-issues, /home/mnj/tmp),
+   else error with
    guidance — unless --mount-cwd, which binds the cwd in on the fly (§7).
 2. Ensure base image present (lazy pull of :latest, rate-limited; an update downloads
    in the background while this session runs the cached image — §5).
@@ -391,6 +392,7 @@ Key points:
 | ------------------------------------------------ | ---------------------------- | ------ | ------------------------------------------------------------------------ |
 | `~/tmp`                                          | same                         | **rw** | shared scratch dir between host and cage, incl. Claude's scratchpads     |
 | `~/code`                                         | `/home/mnj/code`             | **rw** | the work                                                                 |
+| `~/code-private`                                 | same                         | **rw** | personal projects, a work root like `~/code`                             |
 | `~/.claude`                                      | `/home/mnj/.claude`          | **rw** | sessions, history, creds — but with ro overlays below                    |
 | `~/.claude/hooks`                                | same                         | **ro** | host-executed; ro prevents host-escape poisoning (§2)                    |
 | `~/.claude/settings.json`                        | same (file)                  | **ro** | host-executed hook/statusline config; ro (§2)                            |
@@ -614,11 +616,11 @@ mounts `etc/sidecar-subid` (`rootless:1001:64535`, fitted to the keep-id window)
 named volume mounted at `/sock` in both the sidecar and every cage session. Sessions get
 `DOCKER_HOST=unix:///sock/docker.sock`.
 
-**Safety (critical):** the sidecar mounts **only `~/code` and `~/tmp`** (rw, at the identical paths; `CAGE_SIDECAR_SHARED_DIRS`) — required
+**Safety (critical):** the sidecar mounts **only `~/code`, `~/code-private` and `~/tmp`** (rw, at the identical paths; `CAGE_SIDECAR_SHARED_DIRS`) — required
 so `docker run -v` / testcontainers binds referencing those paths resolve inside the
 daemon's filesystem (a `-v` source anywhere else silently becomes an empty dir there).
 `~/tmp` (which also holds Claude Code's scratchpads, `~/tmp/claude-<uid>`) is included so
-temp files for containers needn't be dropped into `~/code`. Both are already rw in the cage, and root
+temp files for containers needn't be dropped into `~/code`. All are already rw in the cage, and root
 in a nested container maps to uid 1000, so a docker bind-mount escape reaches nothing the
 cage can't already write. Do **not** give the sidecar broader mounts (in particular not all
 of `/tmp`: the sidecar keeps its own rootlesskit state there).

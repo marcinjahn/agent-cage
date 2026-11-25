@@ -107,7 +107,7 @@ CAGE_INVOKED_AS="${CAGE_INVOKED_AS:-$(basename "$0")}"
 # from outside these — otherwise podman would create an empty workdir and the agent
 # would see none of your files. Keep in sync with the rw work binds in
 # _cage_add_mounts.
-CAGE_WORK_ROOTS=("$HOME/code" "$HOME/triage-issues" "$HOME/tmp")
+CAGE_WORK_ROOTS=("$HOME/code" "$HOME/code-private" "$HOME/triage-issues" "$HOME/tmp")
 
 # Where a session launched from $HOME itself runs instead. Such launches are almost
 # always quick questions unrelated to the home dir, which isn't (and mustn't be)
@@ -121,9 +121,9 @@ CAGE_ETC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../etc" && pwd)"
 # Host dirs the docker sidecar bind-mounts (rw, identical path), i.e. the only
 # paths `docker run -v` sources can come from. Besides the work, the user's scratch
 # dir (which also holds Claude Code's scratchpads, ~/tmp/claude-<uid>), so temp
-# files for containers need not live in ~/code. Both are already rw in the cage,
+# files for containers need not live in ~/code. All are already rw in the cage,
 # so the docker escape surface stays the same (DESIGN §8).
-CAGE_SIDECAR_SHARED_DIRS=("$HOME/code" "$HOME/tmp")
+CAGE_SIDECAR_SHARED_DIRS=("$HOME/code" "$HOME/code-private" "$HOME/tmp")
 
 cage_err() { printf 'agent-cage: %s\n' "$*" >&2; }
 cage_die() {
@@ -592,6 +592,7 @@ _cage_add_mounts() {
 
   # The work + agent state (rw).
   _cage_bind rw "$HOME/code" "$CAGE_HOME/code"
+  _cage_bind rw "$HOME/code-private" "$CAGE_HOME/code-private"
   _cage_bind rw "$HOME/.claude" "$CAGE_HOME/.claude"
   _cage_bind rw "$HOME/.claude.json" "$CAGE_HOME/.claude.json"
 

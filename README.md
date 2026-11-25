@@ -1,7 +1,7 @@
 # agent-cage
 
 Run **Claude Code** in a selectable permission mode (default: `auto`) without endangering
-the host. Claude may freely change anything inside `~/code` and `~/.claude`, but cannot
+the host. Claude may freely change anything inside `~/code`, `~/code-private` and `~/.claude`, but cannot
 reach or damage the host OS, dotfiles, SSH/GPG keys, browser data, or anything else in your
 home directory. For a fully unattended session, `--mode bypass` skips every permission
 check (`--dangerously-skip-permissions`).
@@ -56,7 +56,7 @@ and rationale.
 1. **Put `bin/` on your PATH.** For fish:
 
    ```fish
-   fish_add_path ~/code/private/agent-cage/bin
+   fish_add_path ~/code-private/agent-cage/bin
    ```
 
 2. **GHCR login (only if the package is private).** The pull needs a token with
@@ -116,12 +116,12 @@ lingering: `sudo loginctl enable-linger $USER`.
   and the GitHub Copilot CLI. Built daily and pushed to GHCR.
 - **Wrappers** (`bin/`): `claude-cage` and `cage` share `_cage-lib.sh`, which assembles all
   podman mounts/env/flags, does the rate-limited image pull, and manages the sidecar.
-- **Mounts** (`DESIGN.md` §7): `~/code` and `~/.claude` are read-write; the host-executed
+- **Mounts** (`DESIGN.md` §7): `~/code`, `~/code-private` and `~/.claude` are read-write; the host-executed
   `~/.claude` scripts (`hooks/`, `settings*.json`, `statusline-command.sh`) are overlaid
   **read-only**; credentials (including .NET user secrets), VCS identity, and the nvim
   config/data are read-only.
 - **Sidecar** (`DESIGN.md` §8): one shared rootless-docker container
-  (`docker:dind-rootless`), bounded to `~/code` and `~/tmp` (which also holds Claude's
+  (`docker:dind-rootless`), bounded to `~/code`, `~/code-private` and `~/tmp` (which also holds Claude's
   scratchpads, `~/tmp/claude-1000`), exposing a socket the cage reaches via `DOCKER_HOST`.
   Started/managed entirely by the wrappers.
 - **Cage instructions:** `etc/cage-claude.md` is mounted read-only as Claude Code's managed
@@ -179,14 +179,14 @@ being edited, not what `kubectl` could do against the API. Instead:
   those from the host. (`DESIGN.md` §7)
 - **Ports:** `--network host` makes host↔cage port-forwarding free, but parallel sessions
   share the host port space. Rootless Podman can't bind ports <1024 — use high ports.
-- **Work roots:** `claude-cage` only launches from inside `~/code`, `~/triage-issues` or
+- **Work roots:** `claude-cage` only launches from inside `~/code`, `~/code-private`, `~/triage-issues` or
   `~/tmp` (the rw-mounted roots), so the cwd resolves to real files in the cage. Launching
   from `~` itself runs the session in `~/tmp/cage-home` instead (override with
   `CAGE_HOME_FALLBACK_DIR`), so a quick question needs no `cd`, and `-c`/`-r` find earlier
   such sessions. To work elsewhere,
   pass `--mount-cwd`, which bind-mounts the current dir into the cage **read-write** at the
   same path. If that dir is otherwise mounted read-only (e.g. `~/.config/nvim`), the
-  read-write cwd mount takes precedence. The docker sidecar still only sees `~/code` and `~/tmp`,
+  read-write cwd mount takes precedence. The docker sidecar still only sees `~/code`, `~/code-private` and `~/tmp`,
   so testcontainers bind-mounting an ad-hoc cwd won't reach it. (`DESIGN.md` §6/§8)
 - **Headed browsers:** the nested Weston window shares no clipboard with your desktop, so
   type credentials into it directly. It starts only when the agent asks for it and closes
