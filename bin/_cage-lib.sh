@@ -831,6 +831,10 @@ _cage_node_heap_mb() {
 _cage_add_envs() {
   RUN_ARGS+=(
     --env AGENT_CAGE=1                    # cage marker (DESIGN §11)
+    # The wrapper's pid, which podman keeps after the exec: the one host process a
+    # session can name that sits under its terminal window, so host-side tools can
+    # tell which window a session runs in.
+    --env "AGENT_CAGE_HOST_PID=$$"
     --env "DOCKER_HOST=unix://$CAGE_SOCK" # -> the sidecar (DESIGN §8)
     # A privileged Ryuk gets every sidecar /dev node copied in, so one host device
     # unplugged since the sidecar started fails each test run. Ryuk only needs the

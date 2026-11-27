@@ -360,6 +360,11 @@ Key points:
 **Environment passed in (`--env`):**
 
 - `AGENT_CAGE=1` — the cage marker (see §11).
+- `AGENT_CAGE_HOST_PID` — the wrapper's host pid, which is also the pid of `podman run`
+  after the exec. The container's own processes hang off conmon, so this is the only host
+  pid under the terminal window that a session can name. Host-side tools walk up from it
+  to find the session's window (the session board does; the notification broker gets the
+  same pid as an argument, see §9).
 - `DOCKER_HOST=unix:///sock/docker.sock` — points at the sidecar (see §8).
 - `CLAUDE_NO_FORMAT`, `CLAUDE_BYPASS_BUILD_SUMMARY` and any other relevant `CLAUDE_*` —
   forwarded from the host environment so they keep working.
